@@ -85,7 +85,7 @@ int s_opendir(int connfd, char * path){
 		printf("could not open directory: %s\n", path);
 		total += putInt(sendBuffer, -errno, total);
 	}else{
-		printf("directory  %s opened\n, file descriptor: %d\n", path, (int)dirp);
+		// printf("directory  %s opened\n, file descriptor: %d\n", path, (int)dirp);
 		total += putInt(sendBuffer, 0, total);
 		total += putInt(sendBuffer, (size_t)dirp, total);
 	}
@@ -251,8 +251,8 @@ int s_release(int connfd, int fd){
 
 int s_read(int connfd, char * path, int fd, int size, int offset){
 	int fsize = lseek(fd, 0, SEEK_END);
-	char buff[1024];     //es zoma sheidzleba ar iyos sakmarisi didi failebistvis da shesacvleli maq. droebit iyos ase
-    char sendBuffer[1024];
+	char buff[size];     //es zoma sheidzleba ar iyos sakmarisi didi failebistvis da shesacvleli maq. droebit iyos ase
+    char sendBuffer[size + 8];
     int total = 0, b_read, sent = 0, coread = 0;//cor = close_on_read
     if(fd == -1){
     	fd = open(path, O_RDONLY);
@@ -278,10 +278,12 @@ int s_read(int connfd, char * path, int fd, int size, int offset){
 	return sent;
 }
 
-int s_write(int connfd, char * path, int fd, char * buff, int size, int offset){
-	char sendBuffer[1024];
-	int total = 0, sent, err, b_written, cowrite = 0;//cow = close_on_write
-
+int s_write(int connfd, char * path, int fd, int size, int offset){
+	char sendBuffer[4096];
+	char buff[4096];
+	int total = 0, sent = 0, err, b_written, total_written = 0, cowrite = 0;//cow = close_on_write
+	// recv(connfd, &buffer, buf_len, 0);
+			
 	if(fd == -1){
     	fd = open(path, O_WRONLY);
     	if(fd == -1)
@@ -289,19 +291,38 @@ int s_write(int connfd, char * path, int fd, char * buff, int size, int offset){
     	else
     		cowrite = 1;
     }
-    if(fd != -1){
-    	b_written = pwrite(fd, buff, size, offset);
-		if(b_written == -1)
-			total += putInt(sendBuffer, -errno, total);
-		else{
-			total += putInt(sendBuffer, 0, total);
-			total += putInt(sendBuffer, b_written, total);
-		}
-	}
+    
 
-	if(cowrite == 1)
+	if(fd != -1){
+		printf("Starting to receive %d bytes long data for fd: %d\n", size, fd);
+    	while(1){
+    		total = 0;
+    		printf("entering while loop...\n");
+    		int btr = readInt(connfd);
+    		printf("chunk size: %d\n", btr);
+			recv(connfd, &buff, btr, 0);
+			buff[btr] = '\0';
+			printf("received chunk. %s\n", buff);
+			b_written = pwrite(fd, buff, btr, offset);
+			if(b_written == -1){
+				total += putInt(sendBuffer, -errno, total);
+			}else{
+				total += putInt(sendBuffer, 0, total);
+				total += putInt(sendBuffer, b_written, total);
+				offset += b_written;
+				total_written += b_written;
+			}
+			sent = sendData(connfd, sendBuffer, total);
+		
+			if(b_written != btr || total_written == size)
+				break;
+		}
+    }else
+    	sent = sendData(connfd, sendBuffer, total);
+    
+    if(cowrite == 1)
 		close(fd);
-	sent = 	sendData(connfd, sendBuffer, total);
+	
 	return sent;	
 }
 
@@ -453,12 +474,10 @@ int processData(int connfd){
 			fullpath = malloc(strlen(storage_dir) + strlen(path));
 			sprintf(fullpath, "%s%s", storage_dir, path + 1);
 			fd = readInt(connfd);
-			buf_len = readInt(connfd);
-			recv(connfd, &buffer, buf_len, 0);
 			size = readInt(connfd);
 			offset = readInt(connfd);
-			printf("Command:\tWRITE\nPath Length:\t%d\nPath:\t\t%s\nBuffer Length:\t%d\nBuffer:\t%s\nSize\t\t%d\nOffset\t\t%d\nfd\t\t%d\n", path_len, fullpath, buf_len, buffer, size, offset, fd);
-			ret = s_write(connfd, fullpath, fd, buffer, size, offset);
+			printf("Command:\tWRITE\nPath Length:\t%d\nPath:\t\t%s\nSize\t\t%d\nOffset\t\t%d\nfd\t\t%d\n", path_len, fullpath, size, offset, fd);
+			ret = s_write(connfd, fullpath, fd, size, offset);
 			free(fullpath);
 			break;
 		case OPENDIR:
@@ -545,40 +564,38 @@ int main(int argc, char *argv[])
     storage_dir = malloc(strlen(argv[3]) + 1);
     strcpy (storage_dir, argv[3]);
         
-    // printf("server ip: %s\nserver port: %d\nstorage directory: %s\n", server_ip, server_port, storage_dir);
-    
-
-    /*iwyeba imati kodi*/
-
-   	int listenfd = 0, connfd = 0;
+    int listenfd = 0, connfd = 0;
     struct sockaddr_in serv_addr; 
-
-    // char sendBuff[1025];
-    
 
     listenfd = socket(AF_INET, SOCK_STREAM, 0);
     memset(&serv_addr, '0', sizeof(serv_addr));
-    // memset(sendBuff, '0', sizeof(sendBuff)); 
-    char * sendBuff = "momivida sheni data!";
-
+    
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
     serv_addr.sin_port = htons(server_port); 
+
+    // int optval = 1;
+	// setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(int));
+
 
     bind(listenfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)); 
 
     listen(listenfd, 10); 
 
-    int n = 0, k;
-  	// char recvBuff[1024];
-  	struct sockaddr_in conn_addr;
-  	unsigned int len = sizeof(conn_addr);
+    
 
     while(1)
     {
     	printf("listening:\n");
     	connfd = accept(listenfd, (struct sockaddr*)NULL, NULL);
+		// if (connfd < 0){
+	 //    	printf("unable to connect: %d\n", connfd);
+	 //    	close(connfd);
+	 //    	continue;
+	 //    }
 		int bytes = processData(connfd);
+		// close(connfd);
+
 		// n = recv(connfd, &recvBuff, 1023, 0);
      	// printf("Recd: %d bytes\n",bytes);
      	// printf("%s\n", recvBuff);

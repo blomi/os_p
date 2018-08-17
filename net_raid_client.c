@@ -273,11 +273,11 @@ static int client_read(const char *path, char *buf, size_t size, off_t offset,
 
 
 //As for read above, except that it can't return 0.
-static int client_write(const char* path, const char *buf, size_t size, off_t offset, struct fuse_file_info* fi){
+static int client_write(const char* path, const char *buff, size_t size, off_t offset, struct fuse_file_info* fi){
 	printf("CLIENT_WRITE\n");
 	
 	struct c_file *f = (struct c_file *)fi->fh;
-	int fd, path_len = strlen(path), buf_len = strlen(buf), sent = 0, err, n_bytes;
+	int fd, path_len = strlen(path), buf_len = strlen(buff), sent = 0, err, send_size, total = 0, b_written;
     if(f != NULL)
 		fd = f->fd;
 	else
@@ -286,42 +286,53 @@ static int client_write(const char* path, const char *buf, size_t size, off_t of
 	printf("WRITE: FILE DESCRIPTOR - %d\n", fd);
     
     int sockfd = getSockfd(mounts[0]->servers[0]->ip, mounts[0]->servers[0]->port);
+	int total_written = 0;
+
+	char sendBuffer[4096];
+	int buf_offset = 0;
+	printf("Size of buffer: %d, Total number of bytes to send: %d\n", (int)buf_len, (int)size);
+	total += putInt(sendBuffer, WRITE, total);
+    total += putInt(sendBuffer, path_len, total);
+    strcpy(sendBuffer + total, path);
+    total += path_len;
+    total += putInt(sendBuffer, fd, total);
 	
-	char sendBuffer[1024];
+	total += putInt(sendBuffer, size, total);
+	total += putInt(sendBuffer, offset, total);
+    sent = sendData(sockfd, sendBuffer, total);
+	
 	while(size > 0){
-		int send_size = size;
+		total = 0;
+	    send_size = size;
 		if(send_size > CHUNK_SIZE)
 			send_size = CHUNK_SIZE;
+		printf("Trying to send %d bytes over socket. bytes sent so far: %d \n", send_size, buf_offset);
+		total += putInt(sendBuffer, send_size, total);
+	    memcpy(sendBuffer + total, buff + buf_offset, send_size);
+	    total += send_size;
 
-		int total = 0;
-	    total += putInt(sendBuffer, WRITE, total);
-	    total += putInt(sendBuffer, path_len, total);
-	    strcpy(sendBuffer + total, path);
-	    total += path_len;
-	    total += putInt(sendBuffer, fd, total);
-	    total += putInt(sendBuffer, buf_len, total);
-	    strcpy(sendBuffer + total, buf);
-	    total += buf_len;
+		sent = sendData(sockfd, sendBuffer, total);
 
-	    total += putInt(sendBuffer, send_size, total);
-	    total += putInt(sendBuffer, offset, total);
-    	sent = sendData(sockfd, sendBuffer, total);
-
-    	size -= send_size;
+	    err = readInt(sockfd);
+		if(err != 0){
+			close(sockfd);
+			return err;	
+		}
+		
+		b_written = readInt(sockfd);
+    	total_written += b_written;
+    	if(b_written < send_size){
+			break;    		
+    	}
+		size -= send_size;
     	offset += send_size;
+    	buf_offset += send_size;
     }
     
-    
     (void) sent;
-
-    err = readInt(sockfd);
-	if(err != 0){
-		close(sockfd);
-		return err;	
-	}
-	n_bytes = readInt(sockfd);
+	printf("WRITE_END\n\n");
 	close(sockfd);
-    return n_bytes;
+    return total_written;
 }
 
 //his is the only FUSE function that doesn't have a directly corresponding system call, although close(2) is related.
@@ -539,11 +550,13 @@ static int client_create(const char *path, mode_t mode, struct fuse_file_info *f
     (void) sent;
 
     err = readInt(sockfd);
-    if(err == 0){
-    	err = readInt(sockfd);
+    if(err != 0){
+    	close(sockfd);
+		return err;
 	}
+    err = readInt(sockfd);
 	close(sockfd);
-	return err;
+	return 0;
 }
 
 static int client_truncate(const char *path, off_t size, struct fuse_file_info *fi){
