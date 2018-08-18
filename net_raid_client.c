@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <pthread.h>
 
 #include <dirent.h>
 
@@ -33,6 +34,8 @@
 enum func{READDIR, GETATTR, OPEN, READ, MKDIR, RMDIR, UNLINK, SYMLINK, RELEASE, WRITE, OPENDIR, RELEASEDIR, RENAME, CREATE, TRUNCATE};
 enum file_type{ISREG, ISDIR, ISCHR, ISBLK, ISFIFO, ISLNK, ISSOCK, NOFILE};  //N_FILE = NO FILE EXISTED, DIR = DIRECTORY, R_FILE = REGULAR FILE
 
+pthread_mutex_t lock;
+
 char * log_path;
 int cacheSize;
 char * replace;
@@ -41,6 +44,9 @@ int timeout;
 int nMounts;
 
 int CHUNK_SIZE = 512;
+
+int sockfd_1;
+int sockfd_2;
 
 struct serv_addr{
 	char * ip;
@@ -82,23 +88,28 @@ int readInt(int connfd){
     return ntohl(raw);
 }
 
-int getSockfd(char * ip, int port){
-	int sockfd = 0;
-    struct sockaddr_in serv_addr; 
+int getSockfd(int serv_index){
+	char * ip = mounts[0]->servers[serv_index]->ip;
+	int port = mounts[0]->servers[serv_index]->port;
 	
-	if((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
-        return 1;
-    } 
-	memset(&serv_addr, '0', sizeof(serv_addr)); 
-	serv_addr.sin_family = AF_INET;
-    serv_addr.sin_port = htons(port); 
-	if(inet_pton(AF_INET, ip, &serv_addr.sin_addr)<=0){
-        return 1;
-    } 
-	if( connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0){
-       return 1;
-    } 
-    return sockfd;
+	// int err = 0; 
+	if(sockfd_1 == -1){
+		struct sockaddr_in serv_addr; 
+		if((sockfd_1 = socket(AF_INET, SOCK_STREAM, 0)) < 0){
+	        return -1;
+	    } 
+		memset(&serv_addr, '0', sizeof(serv_addr)); 
+		serv_addr.sin_family = AF_INET;
+	    serv_addr.sin_port = htons(port); 
+		if(inet_pton(AF_INET, ip, &serv_addr.sin_addr)<=0){
+	        return -1;
+	    }
+
+		if(connect(sockfd_1, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0){
+	       return -1;
+	    } 
+	}
+    return sockfd_1;
 }
 
 int sendData(int sockfd, char * buffer, int size){
@@ -114,15 +125,17 @@ int sendData(int sockfd, char * buffer, int size){
 
 static int client_getattr(const char *path, struct stat *stbuf)
 {
-	printf("CLIENT_GETATTR\n");
+	pthread_mutex_lock(&lock);
+	printf("CLIENT_GETATTR %s\n", path);
 	int sockfd, total = 0, sent = 0, err, path_len; 
 	char sendBuffer[1024];
     
     // return 0;
 	if(strlen(path) == 0){
+    	pthread_mutex_unlock(&lock);
 		return 0;
 	}
-	sockfd = getSockfd(mounts[0]->servers[0]->ip, mounts[0]->servers[0]->port);
+	sockfd = getSockfd(0);
 
     path_len = strlen(path);
     total += putInt(sendBuffer, GETATTR, total);
@@ -150,19 +163,20 @@ static int client_getattr(const char *path, struct stat *stbuf)
 		stbuf->st_mtime = time( NULL );
 		stbuf->st_ctime = time( NULL );
 	}
-	close(sockfd);
+	pthread_mutex_unlock(&lock);
 	return err;
 }
 
 static int client_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			 off_t offset, struct fuse_file_info *fi)
 {
-	printf("CLIENT_READDIR\n");
+	pthread_mutex_lock(&lock);
+	printf("CLIENT_READDIR %s\n", path);
 	(void) offset;
 	(void) fi;
 	int sockfd, path_len, total = 0, err, sent = 0, fNum, i, nameLen; 
 	char sendBuffer[1024];
-    sockfd = getSockfd(mounts[0]->servers[0]->ip, mounts[0]->servers[0]->port);
+    sockfd = getSockfd(0);
     
     path_len = strlen(path);
     total += putInt(sendBuffer, READDIR, total);
@@ -192,21 +206,21 @@ static int client_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 				break;
 		}
     }
-
-    close(sockfd);
-	return err;
+    pthread_mutex_unlock(&lock);
+    return err;
 }
 
 static int client_open(const char *path, struct fuse_file_info *fi)
 {	
-	printf("CLIENT_OPEN\n");
+	pthread_mutex_lock(&lock);
+	printf("CLIENT_OPEN %s\n", path);
 	struct c_file *f = malloc(sizeof(struct c_file));
     memset(f, 0, sizeof(struct c_file));
     int flags, sockfd, path_len, total = 0, sent = 0, err;
 	char sendBuffer[1024];
     
     flags = fi->flags;
-	sockfd = getSockfd(mounts[0]->servers[0]->ip, mounts[0]->servers[0]->port);
+	sockfd = getSockfd(0);
     
 	path_len = strlen(path);
     total += putInt(sendBuffer, OPEN, total);
@@ -225,25 +239,27 @@ static int client_open(const char *path, struct fuse_file_info *fi)
 		f->fd = readInt(sockfd);
 		printf("OPEN_END: RETURNED FILE DESCRIPTOR - %d\n", f->fd);
 		fi->fh = (long)f;
+	}else{
+		printf("OPEN_END: COULD NOT OPEN FILE. SERVER RESPONDED: %d\n", err);
 	}
-	close(sockfd);
-	printf("aq modis xo? 1\n");
+	pthread_mutex_unlock(&lock);
 	return err;
 }
 
 static int client_read(const char *path, char *buf, size_t size, off_t offset,
 		      struct fuse_file_info *fi)
 {
-	printf("CLIENT_READ\n");
+	pthread_mutex_lock(&lock);
+	printf("CLIENT_READ %s\n", path);
 	struct c_file *f = (struct c_file *)fi->fh;
 	int sockfd, fd, total = 0, err, sent = 0, n_bytes = 0, path_len;
 	char sendBuffer[1024];
-    if(f == NULL)
+    if(f != NULL)
 		fd = f->fd;
 	else
 		fd = -1;
 
-	sockfd = getSockfd(mounts[0]->servers[0]->ip, mounts[0]->servers[0]->port);
+	sockfd = getSockfd(0);
 	
 	path_len = strlen(path);
 	total += putInt(sendBuffer, READ, total);
@@ -258,23 +274,29 @@ static int client_read(const char *path, char *buf, size_t size, off_t offset,
     (void) sent;
     
 	err = readInt(sockfd);
-	if(err == 0){
-		n_bytes = readInt(sockfd);
-    	char content[n_bytes + 1];
-	    read(sockfd, &content, n_bytes);
-	    content[n_bytes] = '\0';
-	    strcpy(buf, content);
-	}else{
-		close(sockfd);
+	if(err != 0){
+    	pthread_mutex_unlock(&lock);
 		return err;	
 	}
+	n_bytes = readInt(sockfd);
+	printf("****bytes read %d ******\n", n_bytes);
+	// char content[n_bytes + 1];
+	// if(n_bytes > 0){
+	read(sockfd, buf, n_bytes);
+    // content[n_bytes] = '\0';
+    // strcpy(buf, content);
+	// }
+	printf("READ_END: BYTES READ: %d\n", n_bytes);
+    // memcpy(buf, content, n_bytes);
+    pthread_mutex_unlock(&lock);
 	return n_bytes;
 }
 
 
 //As for read above, except that it can't return 0.
 static int client_write(const char* path, const char *buff, size_t size, off_t offset, struct fuse_file_info* fi){
-	printf("CLIENT_WRITE\n");
+	pthread_mutex_lock(&lock);
+	printf("CLIENT_WRITE %s\n", path);
 	
 	struct c_file *f = (struct c_file *)fi->fh;
 	int fd, path_len = strlen(path), buf_len = strlen(buff), sent = 0, err, send_size, total = 0, b_written;
@@ -285,7 +307,7 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
 
 	printf("WRITE: FILE DESCRIPTOR - %d\n", fd);
     
-    int sockfd = getSockfd(mounts[0]->servers[0]->ip, mounts[0]->servers[0]->port);
+    int sockfd = getSockfd(0);
 	int total_written = 0;
 
 	char sendBuffer[4096];
@@ -315,9 +337,10 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
 
 	    err = readInt(sockfd);
 		if(err != 0){
-			close(sockfd);
+    		pthread_mutex_unlock(&lock);
 			return err;	
 		}
+		
 		
 		b_written = readInt(sockfd);
     	total_written += b_written;
@@ -331,25 +354,28 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
     
     (void) sent;
 	printf("WRITE_END\n\n");
-	close(sockfd);
-    return total_written;
+    pthread_mutex_unlock(&lock);
+	return total_written;
 }
 
 //his is the only FUSE function that doesn't have a directly corresponding system call, although close(2) is related.
 //Release is called when FUSE is completely done with a file; at that point, you can free up any temporarily allocated data structures. 
 //The IBM document claims that there is exactly one release per open, but I don't know if that is true.
 static int client_release(const char* path, struct fuse_file_info *fi){
-	printf("CLIENT_RELEASE\n");
+	pthread_mutex_lock(&lock);
+	printf("CLIENT_RELEASE %s\n", path);
 	struct c_file *f = (struct c_file *)fi->fh;
 	int sockfd, err, total = 0, sent = 0;
 	char sendBuffer[1024];
     if(f == NULL){
+    	pthread_mutex_unlock(&lock);
 		return -EACCES;
 	}
 	if(f->fd <= 0){
+		pthread_mutex_unlock(&lock);
 		return -EACCES;
 	}
-	sockfd = getSockfd(mounts[0]->servers[0]->ip, mounts[0]->servers[0]->port);
+	sockfd = getSockfd(0);
 	
 	total += putInt(sendBuffer, RELEASE, total);
     total += putInt(sendBuffer, f->fd, total);
@@ -358,16 +384,17 @@ static int client_release(const char* path, struct fuse_file_info *fi){
     (void) sent;
 
     err = readInt(sockfd);
-    close(sockfd);
-	return err;
+    pthread_mutex_unlock(&lock);
+    return err;
 }
 
 //Rename the file, directory, or other object "from" to the target "to". 
 //Note that the source and target don't have to be in the same directory, so it may be necessary to move the source to an entirely new directory. 
 //See rename(2) for full details.
 static int client_rename(const char* from, const char* to){
-	printf("CLIENT_RENAME\n");
-	int sockfd = getSockfd(mounts[0]->servers[0]->ip, mounts[0]->servers[0]->port);
+	pthread_mutex_lock(&lock);
+	printf("CLIENT_RENAME %s  %s\n", from, to);
+	int sockfd = getSockfd(0);
 	
 	char sendBuffer[1024];
     int total = 0, from_len = strlen(from), to_len = strlen(to), err;
@@ -384,16 +411,17 @@ static int client_rename(const char* from, const char* to){
     (void) sent;
 	
 	err = readInt(sockfd);
-    close(sockfd);
-	return err;
+	pthread_mutex_unlock(&lock);
+    return err;
 }
 
 //Remove (delete) the given file, symbolic link, hard link, or special node. 
 //Note that if you support hard links, unlink only deletes the data when the last hard link is removed. 
 //See unlink(2) for details.
 static int client_unlink(const char* path){
-	printf("CLIENT_UNLINK\n");
-	int sockfd = getSockfd(mounts[0]->servers[0]->ip, mounts[0]->servers[0]->port);
+	pthread_mutex_lock(&lock);
+	printf("CLIENT_UNLINK %s\n", path);
+	int sockfd = getSockfd(0);
 	
 	char sendBuffer[1024];
     int total = 0, path_len = strlen(path), err;
@@ -405,14 +433,15 @@ static int client_unlink(const char* path){
     (void) sent;
 	
 	err = readInt(sockfd);
-    close(sockfd);
-	return err;
+	pthread_mutex_unlock(&lock);
+    return err;
 }
 
 //Remove the given directory. This should succeed only if the directory is empty (except for "." and ".."). See rmdir(2) for details.
 static int client_rmdir(const char* path){
-	printf("CLIENT_RMDIR\n");
-	int sockfd = getSockfd(mounts[0]->servers[0]->ip, mounts[0]->servers[0]->port);
+	pthread_mutex_lock(&lock);
+	printf("CLIENT_RMDIR %s\n", path);
+	int sockfd = getSockfd(0);
 	
 	char sendBuffer[1024];
     int total = 0, path_len = strlen(path), err;
@@ -424,14 +453,15 @@ static int client_rmdir(const char* path){
     (void) sent;
 	
 	err = readInt(sockfd);
-    close(sockfd);
-	return err;
+	pthread_mutex_unlock(&lock);
+    return err;
 }
 
 //Create a directory with the given name. The directory permissions are encoded in mode. 
 static int client_mkdir(const char* path, mode_t mode){
-	printf("CLIENT_MKDIR\n");
-	int sockfd = getSockfd(mounts[0]->servers[0]->ip, mounts[0]->servers[0]->port);
+	pthread_mutex_lock(&lock);
+	printf("CLIENT_MKDIR %s\n", path);
+	int sockfd = getSockfd(0);
 	
 	char sendBuffer[1024];
     int total = 0, path_len = strlen(path), err;
@@ -444,13 +474,14 @@ static int client_mkdir(const char* path, mode_t mode){
     (void) sent;
 	
 	err = readInt(sockfd);
-    close(sockfd);
-	return err;
+	pthread_mutex_unlock(&lock);
+    return err;
 }
 
 static int client_symlink(const char* from, const char * to){
-	printf("CLIENT_SYMLINK\n");
-	int sockfd = getSockfd(mounts[0]->servers[0]->ip, mounts[0]->servers[0]->port);
+	pthread_mutex_lock(&lock);
+	printf("CLIENT_SYMLINK %s %s\n", from, to);
+	int sockfd = getSockfd(0);
 	
 	char sendBuffer[1024];
     int total = 0, path_len = strlen(from), path_len1 = strlen(to), err;
@@ -467,19 +498,20 @@ static int client_symlink(const char* from, const char * to){
     (void) sent;
 	
 	err = readInt(sockfd);
-    close(sockfd);
-	return err;
+	pthread_mutex_unlock(&lock);
+    return err;
 }
 
 /*  Open a directory for reading. */
 static int client_opendir(const char* path, struct fuse_file_info* fi){
-	printf("CLIENT_OPENDIR\n");
+	pthread_mutex_lock(&lock);
+	printf("CLIENT_OPENDIR %s\n", path);
 	struct c_file *f = malloc(sizeof(struct c_file));
     memset(f, 0, sizeof(struct c_file));
 	int sockfd, sent, err, total = 0, path_len = strlen(path);
 	char sendBuffer[1024];
     
-	sockfd = getSockfd(mounts[0]->servers[0]->ip, mounts[0]->servers[0]->port);
+	sockfd = getSockfd(0);
 	
 	total += putInt(sendBuffer, OPENDIR, total);
     total += putInt(sendBuffer, path_len, total);
@@ -496,23 +528,26 @@ static int client_opendir(const char* path, struct fuse_file_info* fi){
 		f->fd = readInt(sockfd);
 		fi->fh = (long)f;
 	}
-	close(sockfd);
+	pthread_mutex_unlock(&lock);
 	return err;
 }
 
 //This is like release, except for directories.
 static int client_releasedir(const char* path, struct fuse_file_info *fi){
-	printf("CLIENT_RELEASEDIR\n");
+	pthread_mutex_lock(&lock);
+	printf("CLIENT_RELEASEDIR %s\n", path);
 	struct c_file *f = (struct c_file *)fi->fh;
 	int sockfd, total = 0, path_len = strlen(path), sent = 0, err;
 	char sendBuffer[1024];
     if(f == NULL){
+    	pthread_mutex_unlock(&lock);
 		return -EACCES;
 	}
 	if(f->fd <= 0){
+		pthread_mutex_unlock(&lock);
 		return -EACCES;
 	}
-	sockfd = getSockfd(mounts[0]->servers[0]->ip, mounts[0]->servers[0]->port);
+	sockfd = getSockfd(0);
 	
 	total += putInt(sendBuffer, RELEASEDIR, total);
     total += putInt(sendBuffer, path_len, total);
@@ -524,8 +559,8 @@ static int client_releasedir(const char* path, struct fuse_file_info *fi){
     (void) sent;
 
 	err = readInt(sockfd);
-    close(sockfd);
-	return err;
+	pthread_mutex_unlock(&lock);
+    return err;
 }
 
 static int client_utimens(const char*path, const struct timespec ts[2]){
@@ -534,8 +569,9 @@ static int client_utimens(const char*path, const struct timespec ts[2]){
 
 
 static int client_create(const char *path, mode_t mode, struct fuse_file_info *fi) {
-	printf("CLIENT_CREATE\n");
-	int sockfd = getSockfd(mounts[0]->servers[0]->ip, mounts[0]->servers[0]->port);
+	pthread_mutex_lock(&lock);
+	printf("CLIENT_CREATE %s\n", path);
+	int sockfd = getSockfd(0);
 	
 	char sendBuffer[1024];
     int total = 0, err, path_len = strlen(path);
@@ -551,16 +587,18 @@ static int client_create(const char *path, mode_t mode, struct fuse_file_info *f
 
     err = readInt(sockfd);
     if(err != 0){
-    	close(sockfd);
-		return err;
-	}
+    	pthread_mutex_unlock(&lock);
+    	return err;
+    }
+	
     err = readInt(sockfd);
-	close(sockfd);
+    pthread_mutex_unlock(&lock);
 	return 0;
 }
 
 static int client_truncate(const char *path, off_t size, struct fuse_file_info *fi){
-	printf("CLIENT_TRUNCATE\n");
+	pthread_mutex_lock(&lock);
+	printf("CLIENT_TRUNCATE %s\n", path);
 	struct c_file *f = NULL;// = (struct c_file *)fi->fh;
 	int sockfd, total = 0, path_len = strlen(path), sent = 0, err, tfd = -1;
 	char sendBuffer[1024];
@@ -573,7 +611,7 @@ static int client_truncate(const char *path, off_t size, struct fuse_file_info *
 	}else{
 		tfd = f->fd;
 	}
-	sockfd = getSockfd(mounts[0]->servers[0]->ip, mounts[0]->servers[0]->port);
+	sockfd = getSockfd(0);
 	printf("aq modis? 2   %d\n", tfd);
 
     total += putInt(sendBuffer, TRUNCATE, total);
@@ -587,10 +625,13 @@ static int client_truncate(const char *path, off_t size, struct fuse_file_info *
     (void) sent;
 
     err = readInt(sockfd);
-    if(err == 0){
-    	err = readInt(sockfd);
-	}
-	close(sockfd);
+    if(err != 0){
+    	pthread_mutex_unlock(&lock);
+    	return err;
+    }
+    
+    err = readInt(sockfd);
+    pthread_mutex_unlock(&lock);
 	return err;	
 }
 
@@ -754,6 +795,13 @@ int main(int argc, char *argv[])
 		printf("CONFIG: bad formatting of config file. exitting");
 		return 0;
 	}
+	sockfd_1 = -1;
+	sockfd_2 = -1;
+	if (pthread_mutex_init(&lock, NULL) != 0)
+    {
+        printf("\n mutex init failed\n");
+        return 1;
+    }
 	printf("connecting to ip: %s   port: %d \n", mounts[0]->servers[0]->ip, mounts[0]->servers[0]->port);
 	// return 0;
 	argv[1] = mounts[0]->mountpoint;
