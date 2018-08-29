@@ -70,6 +70,10 @@ struct c_file{
 	enum file_type ft;
 };
 
+
+int n_servers;
+int * s_fd_arr;
+
 struct mount ** mounts;
 
 
@@ -88,28 +92,55 @@ int readInt(int connfd){
     return ntohl(raw);
 }
 
-int getSockfd(int serv_index){
-	char * ip = mounts[0]->servers[serv_index]->ip;
-	int port = mounts[0]->servers[serv_index]->port;
-	
-	// int err = 0; 
-	if(sockfd_1 == -1){
-		struct sockaddr_in serv_addr; 
-		if((sockfd_1 = socket(AF_INET, SOCK_STREAM, 0)) < 0){
-	        return -1;
-	    } 
-		memset(&serv_addr, '0', sizeof(serv_addr)); 
-		serv_addr.sin_family = AF_INET;
-	    serv_addr.sin_port = htons(port); 
-		if(inet_pton(AF_INET, ip, &serv_addr.sin_addr)<=0){
-	        return -1;
-	    }
-
-		if(connect(sockfd_1, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0){
-	       return -1;
-	    } 
+int getSockfd_arr(int serv_index){
+	int serv_index;
+	char * ip;
+	int port;
+	if(s_fd_arr == NULL){
+		s_fd_arr = malloc(sizeof(int) * n_servers);
+		for(serv_index = 0; serv_index < n_servers; serv_index++)
+			s_fd_arr[serv_index] = -1;
+		
 	}
-    return sockfd_1;
+
+	for(serv_index = 0; serv_index < n_servers; serv_index++){
+		if(s_fd_arr[serv_index] == -1){
+			ip = mounts[0]->servers[serv_index]->ip;
+			port = mounts[0]->servers[serv_index]->port;
+				
+			struct sockaddr_in serv_addr; 
+			if((s_fd_arr[serv_index] = socket(AF_INET, SOCK_STREAM, 0)) < 0){
+		        continue;
+		    } 
+			memset(&serv_addr, '0', sizeof(serv_addr)); 
+			serv_addr.sin_family = AF_INET;
+		    serv_addr.sin_port = htons(port); 
+			if(inet_pton(AF_INET, ip, &serv_addr.sin_addr)<=0){
+		        continue;
+		    }
+
+			if(connect(s_fd_arr[serv_index], (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0){
+		       continue;
+		    }
+		}
+	}
+	// if(sockfd_1 == -1){
+	// 	struct sockaddr_in serv_addr; 
+	// 	if((sockfd_1 = socket(AF_INET, SOCK_STREAM, 0)) < 0){
+	//         return -1;
+	//     } 
+	// 	memset(&serv_addr, '0', sizeof(serv_addr)); 
+	// 	serv_addr.sin_family = AF_INET;
+	//     serv_addr.sin_port = htons(port); 
+	// 	if(inet_pton(AF_INET, ip, &serv_addr.sin_addr)<=0){
+	//         return -1;
+	//     }
+
+	// 	if(connect(sockfd_1, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0){
+	//        return -1;
+	//     } 
+	// }
+    return s_fd_arr;
 }
 
 int sendData(int sockfd, char * buffer, int size){
@@ -797,6 +828,7 @@ int main(int argc, char *argv[])
 	}
 	sockfd_1 = -1;
 	sockfd_2 = -1;
+	s_fd_arr = NULL; 
 	if (pthread_mutex_init(&lock, NULL) != 0)
     {
         printf("\n mutex init failed\n");
