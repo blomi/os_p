@@ -309,6 +309,7 @@ int s_write(int connfd, char * path, int fd, int size, int offset){
 				total += putInt(sendBuffer, -errno, total);
 			}else{
 				total += putInt(sendBuffer, 0, total);
+				printf("B_WRITTEN: %d\n", b_written);
 				total += putInt(sendBuffer, b_written, total);
 				offset += b_written;
 				total_written += b_written;
@@ -318,8 +319,10 @@ int s_write(int connfd, char * path, int fd, int size, int offset){
 			if(b_written != btr || total_written == size)
 				break;
 		}
-    }else
+    }else{
+    	printf("could not open file:  %s\n", path);
     	sent = sendData(connfd, sendBuffer, total);
+    }
     
     if(cowrite == 1)
 		close(fd);

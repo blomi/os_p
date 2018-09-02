@@ -66,7 +66,7 @@ struct c_file{
 	char * name;
 	char * path;
 	int flags;
-	int fd;
+	int * fd_arr;
 	enum file_type ft;
 };
 
@@ -92,7 +92,7 @@ int readInt(int connfd){
     return ntohl(raw);
 }
 
-int getSockfd_arr(int serv_index){
+int * getSockfd_arr(){
 	int serv_index;
 	char * ip;
 	int port;
@@ -144,13 +144,15 @@ int getSockfd_arr(int serv_index){
 }
 
 int sendData(int sockfd, char * buffer, int size){
-	int sent = 0;
+	int sent = 0, bytes = 0;
     while(sent < size){
-		int bytes = write(sockfd,buffer + sent, size - sent);
-        if (bytes < 0)
+		bytes = write(sockfd,buffer + sent, size - sent);
+        if (bytes <= 0)
             break;
         sent += bytes;
-	} 
+	}
+	if(bytes <= 0) 
+		return bytes;
 	return sent;
 }
 
@@ -158,15 +160,19 @@ static int client_getattr(const char *path, struct stat *stbuf)
 {
 	pthread_mutex_lock(&lock);
 	printf("CLIENT_GETATTR %s\n", path);
-	int sockfd, total = 0, sent = 0, err, path_len; 
+	int serv_index, sockfd, total = 0, sent = 0, err, path_len; 
 	char sendBuffer[1024];
-    
+    int * sockfd_arr;
+
     // return 0;
 	if(strlen(path) == 0){
     	pthread_mutex_unlock(&lock);
 		return 0;
 	}
-	sockfd = getSockfd(0);
+	sockfd_arr = getSockfd_arr();
+	// for(serv_index = 0; serv_index < n_servers; serv_index ++){
+	// 	printf("SERVER: %d ---> FD: %d\n", serv_index, sockfd_arr[serv_index]);
+	// }
 
     path_len = strlen(path);
     total += putInt(sendBuffer, GETATTR, total);
@@ -174,26 +180,38 @@ static int client_getattr(const char *path, struct stat *stbuf)
     strcpy(sendBuffer + total, path);
     total += path_len;
 
-    sent = sendData(sockfd, sendBuffer, total);
-    (void) sent;
+
+    for(serv_index = 0; serv_index < n_servers; serv_index ++){
+    	sockfd = sockfd_arr[serv_index];
+
+    	sent = sendData(sockfd, sendBuffer, total);
+	    if(sent <= 0){
+    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+	    	continue;
+    	}
+	    
+		err = readInt(sockfd);
+		if (err == 0){
+			memset(stbuf, 0, sizeof(struct stat));
+			//stbuf->st_dev = 0; // ignored
+			//stbuf->st_ino = 0; // ignored for now
+			stbuf->st_mode = (mode_t) readInt(sockfd);
+			stbuf->st_nlink = (nlink_t) readInt(sockfd);
+			stbuf->st_uid = (uid_t) readInt(sockfd);
+			stbuf->st_gid = (gid_t) readInt(sockfd);
+			stbuf->st_rdev = (dev_t) readInt(sockfd);
+			//stbuf->st_blksize = 0; // ignored
+			stbuf->st_blocks = (blkcnt_t) readInt(sockfd);
+			stbuf->st_size = (off_t) readInt(sockfd);
+			stbuf->st_atime = time( NULL );
+			stbuf->st_mtime = time( NULL );
+			stbuf->st_ctime = time( NULL );
+		}
+		break;
+
+    }
+
     
-	err = readInt(sockfd);
-	if (err == 0){
-		memset(stbuf, 0, sizeof(struct stat));
-		//stbuf->st_dev = 0; // ignored
-		//stbuf->st_ino = 0; // ignored for now
-		stbuf->st_mode = (mode_t) readInt(sockfd);
-		stbuf->st_nlink = (nlink_t) readInt(sockfd);
-		stbuf->st_uid = (uid_t) readInt(sockfd);
-		stbuf->st_gid = (gid_t) readInt(sockfd);
-		stbuf->st_rdev = (dev_t) readInt(sockfd);
-		//stbuf->st_blksize = 0; // ignored
-		stbuf->st_blocks = (blkcnt_t) readInt(sockfd);
-		stbuf->st_size = (off_t) readInt(sockfd);
-		stbuf->st_atime = time( NULL );
-		stbuf->st_mtime = time( NULL );
-		stbuf->st_ctime = time( NULL );
-	}
 	pthread_mutex_unlock(&lock);
 	return err;
 }
@@ -205,9 +223,11 @@ static int client_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	printf("CLIENT_READDIR %s\n", path);
 	(void) offset;
 	(void) fi;
-	int sockfd, path_len, total = 0, err, sent = 0, fNum, i, nameLen; 
+	int serv_index, sockfd, path_len, total = 0, err, sent = 0, fNum, i, nameLen; 
+	int * sockfd_arr;
+
 	char sendBuffer[1024];
-    sockfd = getSockfd(0);
+    sockfd_arr = getSockfd_arr();
     
     path_len = strlen(path);
     total += putInt(sendBuffer, READDIR, total);
@@ -215,28 +235,36 @@ static int client_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     strcpy(sendBuffer + total, path);
     total += path_len;
     
-    sent = sendData(sockfd, sendBuffer, total);
-    (void) sent;
+    for(serv_index = 0; serv_index < n_servers; serv_index ++){
+    	sockfd = sockfd_arr[serv_index];
+    	sent = sendData(sockfd, sendBuffer, total);
+	    if(sent <= 0){
+    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+	    	continue;
+    	}
 
-    err = readInt(sockfd);
-    if(err == 0){
-    	fNum = readInt(sockfd);
-    	for(i = 0; i < fNum; i++){
-	        struct stat st;
-			memset(&st, 0, sizeof(st));
-			
-			nameLen = readInt(sockfd);
-	        char name [nameLen + 1];
-	        read(sockfd, &name, nameLen);
-	        name[nameLen] = '\0';
+	    err = readInt(sockfd);
+	    if(err == 0){
+	    	fNum = readInt(sockfd);
+	    	for(i = 0; i < fNum; i++){
+		        struct stat st;
+				memset(&st, 0, sizeof(st));
+				
+				nameLen = readInt(sockfd);
+		        char name [nameLen + 1];
+		        read(sockfd, &name, nameLen);
+		        name[nameLen] = '\0';
 
-	        st.st_ino = readInt(sockfd);
-			st.st_mode = readInt(sockfd);
-			
-			if (filler(buf, name, &st, 0))
-				break;
-		}
-    }
+		        st.st_ino = readInt(sockfd);
+				st.st_mode = readInt(sockfd);
+				
+				if (filler(buf, name, &st, 0))
+					break;
+			}
+			break;
+	    }
+	}
+    
     pthread_mutex_unlock(&lock);
     return err;
 }
@@ -247,11 +275,14 @@ static int client_open(const char *path, struct fuse_file_info *fi)
 	printf("CLIENT_OPEN %s\n", path);
 	struct c_file *f = malloc(sizeof(struct c_file));
     memset(f, 0, sizeof(struct c_file));
-    int flags, sockfd, path_len, total = 0, sent = 0, err;
+    f->fd_arr = malloc(sizeof(int) * n_servers);
+    memset(f->fd_arr, 0, sizeof(int) * n_servers);
+    int serv_index, sockfd, flags, path_len, total = 0, sent = 0, err;
 	char sendBuffer[1024];
-    
+    int * sockfd_arr;
+
     flags = fi->flags;
-	sockfd = getSockfd(0);
+	sockfd_arr = getSockfd_arr();
     
 	path_len = strlen(path);
     total += putInt(sendBuffer, OPEN, total);
@@ -260,19 +291,28 @@ static int client_open(const char *path, struct fuse_file_info *fi)
     total += path_len;
     total += putInt(sendBuffer, flags, total);
     
-    sent = sendData(sockfd, sendBuffer, total);
-    (void) sent;
-	err = readInt(sockfd);
-	if(err == 0){
-		// f->path = malloc(strlen(path) + 1);
-		// strcpy(f->path, path);
-		f->flags = flags;
-		f->fd = readInt(sockfd);
-		printf("OPEN_END: RETURNED FILE DESCRIPTOR - %d\n", f->fd);
-		fi->fh = (long)f;
-	}else{
-		printf("OPEN_END: COULD NOT OPEN FILE. SERVER RESPONDED: %d\n", err);
-	}
+    for(serv_index = 0; serv_index < n_servers; serv_index ++){
+    	sockfd = sockfd_arr[serv_index];
+    	sent = sendData(sockfd, sendBuffer, total);
+	    if(sent <= 0){
+    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+	    	continue;
+    	}
+		err = readInt(sockfd);
+		if(err == 0){
+			// f->path = malloc(strlen(path) + 1);
+			// strcpy(f->path, path);
+			f->flags = flags;
+			int temp = readInt(sockfd);
+			f->fd_arr[serv_index] = temp;
+			printf("gadmocemuli fd: %d\n", temp);
+			// f->fd_arr[serv_index] = readInt(sockfd);
+			printf("OPEN_END: RETURNED FILE DESCRIPTOR - %d\n", f->fd_arr[serv_index]);
+		}else{
+			printf("OPEN_END: COULD NOT OPEN FILE. SERVER RESPONDED: %d\n", err);
+		}
+    }
+    fi->fh = (long)f;
 	pthread_mutex_unlock(&lock);
 	return err;
 }
@@ -283,44 +323,52 @@ static int client_read(const char *path, char *buf, size_t size, off_t offset,
 	pthread_mutex_lock(&lock);
 	printf("CLIENT_READ %s\n", path);
 	struct c_file *f = (struct c_file *)fi->fh;
-	int sockfd, fd, total = 0, err, sent = 0, n_bytes = 0, path_len;
+	int serv_index, sockfd, fd, total = 0, err, sent = 0, n_bytes = 0, path_len = strlen(path);
 	char sendBuffer[1024];
-    if(f != NULL)
-		fd = f->fd;
-	else
-		fd = -1;
+    int * sockfd_arr = getSockfd_arr();
 
-	sockfd = getSockfd(0);
+    for(serv_index = 0; serv_index < n_servers; serv_index ++){
+    	sockfd = sockfd_arr[serv_index];
+	    total = 0;
+	    if(f != NULL)
+			fd = f->fd_arr[serv_index];
+		else
+			fd = -1;
 	
-	path_len = strlen(path);
-	total += putInt(sendBuffer, READ, total);
-    total += putInt(sendBuffer, path_len, total);
-    strcpy(sendBuffer + total, path);
-    total += path_len;
-    total += putInt(sendBuffer, fd, total);
-    total += putInt(sendBuffer, size, total);
-    total += putInt(sendBuffer, offset, total);
+		total += putInt(sendBuffer, READ, total);
+	    total += putInt(sendBuffer, path_len, total);
+	    strcpy(sendBuffer + total, path);
+	    total += path_len;
+	    total += putInt(sendBuffer, fd, total);
+	    total += putInt(sendBuffer, size, total);
+	    total += putInt(sendBuffer, offset, total);
     
-    sent = sendData(sockfd, sendBuffer, total);
-    (void) sent;
-    
-	err = readInt(sockfd);
-	if(err != 0){
-    	pthread_mutex_unlock(&lock);
-		return err;	
-	}
-	n_bytes = readInt(sockfd);
-	printf("****bytes read %d ******\n", n_bytes);
-	// char content[n_bytes + 1];
-	// if(n_bytes > 0){
-	read(sockfd, buf, n_bytes);
-    // content[n_bytes] = '\0';
-    // strcpy(buf, content);
-	// }
-	printf("READ_END: BYTES READ: %d\n", n_bytes);
-    // memcpy(buf, content, n_bytes);
+
+    	sent = sendData(sockfd, sendBuffer, total);
+	    if(sent <= 0){
+    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+	    	continue;
+    	}
+	    err = readInt(sockfd);
+		if(err != 0){
+	    	continue;	
+		}
+		n_bytes = readInt(sockfd);
+		printf("****bytes read %d ******\n", n_bytes);
+		// char content[n_bytes + 1];
+		// if(n_bytes > 0){
+		read(sockfd, buf, n_bytes);
+	    // content[n_bytes] = '\0';
+	    // strcpy(buf, content);
+		// }
+		printf("READ_END: BYTES READ: %d\n", n_bytes);
+	    // memcpy(buf, content, n_bytes);
+	    break;
+    }
     pthread_mutex_unlock(&lock);
-	return n_bytes;
+	if(err != 0)
+		return err;
+    return n_bytes;
 }
 
 
@@ -330,60 +378,85 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
 	printf("CLIENT_WRITE %s\n", path);
 	
 	struct c_file *f = (struct c_file *)fi->fh;
-	int fd, path_len = strlen(path), buf_len = strlen(buff), sent = 0, err, send_size, total = 0, b_written;
-    if(f != NULL)
-		fd = f->fd;
-	else
-		fd = -1;
+	int serv_index, sockfd, fd, path_len = strlen(path), buf_len = strlen(buff), sent = 0, err, send_size, total = 0, b_written, total_written, s_size, buf_offset;
+    int * sockfd_arr = getSockfd_arr();
 
-	printf("WRITE: FILE DESCRIPTOR - %d\n", fd);
     
-    int sockfd = getSockfd(0);
-	int total_written = 0;
 
-	char sendBuffer[4096];
-	int buf_offset = 0;
-	printf("Size of buffer: %d, Total number of bytes to send: %d\n", (int)buf_len, (int)size);
-	total += putInt(sendBuffer, WRITE, total);
-    total += putInt(sendBuffer, path_len, total);
-    strcpy(sendBuffer + total, path);
-    total += path_len;
-    total += putInt(sendBuffer, fd, total);
-	
-	total += putInt(sendBuffer, size, total);
-	total += putInt(sendBuffer, offset, total);
-    sent = sendData(sockfd, sendBuffer, total);
-	
-	while(size > 0){
-		total = 0;
-	    send_size = size;
-		if(send_size > CHUNK_SIZE)
-			send_size = CHUNK_SIZE;
-		printf("Trying to send %d bytes over socket. bytes sent so far: %d \n", send_size, buf_offset);
-		total += putInt(sendBuffer, send_size, total);
-	    memcpy(sendBuffer + total, buff + buf_offset, send_size);
-	    total += send_size;
+    for(serv_index = 0; serv_index < n_servers; serv_index ++){
+    	sockfd = sockfd_arr[serv_index];
+    	total_written = 0;
+    	buf_offset = 0;
+    	s_size = size;
+    	total = 0;
+    
+	    if(f != NULL)
+			fd = f->fd_arr[serv_index];
+		else
+			fd = -1;
+
+		printf("WRITE: FILE DESCRIPTOR - %d\n", fd);
+	    
+		
+		char sendBuffer[4096];
+		printf("Size of buffer: %d, Total number of bytes to send: %d\n", (int)buf_len, (int)size);
+		total += putInt(sendBuffer, WRITE, total);
+	    total += putInt(sendBuffer, path_len, total);
+	    strcpy(sendBuffer + total, path);
+	    total += path_len;
+	    total += putInt(sendBuffer, fd, total);
+		
+		total += putInt(sendBuffer, size, total);
+		total += putInt(sendBuffer, offset, total);
+
 
 		sent = sendData(sockfd, sendBuffer, total);
-
-	    err = readInt(sockfd);
-		if(err != 0){
-    		pthread_mutex_unlock(&lock);
-			return err;	
-		}
-		
-		
-		b_written = readInt(sockfd);
-    	total_written += b_written;
-    	if(b_written < send_size){
-			break;    		
+		if(sent <= 0){
+    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+	    	continue;
     	}
-		size -= send_size;
-    	offset += send_size;
-    	buf_offset += send_size;
+		
+		while(s_size > 0){
+			total = 0;
+		    send_size = s_size;
+			if(send_size > CHUNK_SIZE)
+				send_size = CHUNK_SIZE;
+			printf("Trying to send %d bytes over socket. bytes sent so far: %d \n", send_size, buf_offset);
+			total += putInt(sendBuffer, send_size, total);
+		    memcpy(sendBuffer + total, buff + buf_offset, send_size);
+		    total += send_size;
+
+			sent = sendData(sockfd, sendBuffer, total);
+			printf("SENT: %d\n", sent);
+			if(sent <= 0){
+	    		break;
+	    	}
+
+		    err = readInt(sockfd);
+		    printf("ERR1: %d\n", err);
+			if(err != 0){
+				printf("aq xoar shemodis?\n");
+				break;
+	   			// pthread_mutex_unlock(&lock);
+				// return err;	
+			}
+			
+			
+			b_written = readInt(sockfd);
+			printf("B_WRITTEN: %d\n", b_written);
+	    	total_written += b_written;
+	    	if(b_written < send_size){
+				break;    		
+	    	}
+			s_size -= send_size;
+	    	buf_offset += send_size;
+	    }
+	    if(err != 0){
+	    	printf("writing to sockfd %d FAILED. \n", sockfd);
+	    }
+
     }
     
-    (void) sent;
 	printf("WRITE_END\n\n");
     pthread_mutex_unlock(&lock);
 	return total_written;
@@ -396,25 +469,35 @@ static int client_release(const char* path, struct fuse_file_info *fi){
 	pthread_mutex_lock(&lock);
 	printf("CLIENT_RELEASE %s\n", path);
 	struct c_file *f = (struct c_file *)fi->fh;
-	int sockfd, err, total = 0, sent = 0;
+	int serv_index, sockfd, err = -1, total = 0, sent = 0;
 	char sendBuffer[1024];
-    if(f == NULL){
-    	pthread_mutex_unlock(&lock);
-		return -EACCES;
+	int * sockfd_arr = getSockfd_arr();
+	for(serv_index = 0; serv_index < n_servers; serv_index ++){
+    	total = 0;
+    	sockfd = sockfd_arr[serv_index];
+	    if(f == NULL){
+	  // 		pthread_mutex_unlock(&lock);
+			// return -EACCES;
+			continue;
+		}
+		if(f->fd_arr[serv_index] <= 0){
+			// pthread_mutex_unlock(&lock);
+			// return -EACCES;
+			continue;
+		}
+		
+		total += putInt(sendBuffer, RELEASE, total);
+	    total += putInt(sendBuffer, f->fd_arr[serv_index], total);
+	    (void) path;
+    
+        sent = sendData(sockfd, sendBuffer, total);
+	    if(sent <= 0){
+    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+	    	continue;
+    	}
+		err = readInt(sockfd);
+		printf("release returned value: %d\n", err);
 	}
-	if(f->fd <= 0){
-		pthread_mutex_unlock(&lock);
-		return -EACCES;
-	}
-	sockfd = getSockfd(0);
-	
-	total += putInt(sendBuffer, RELEASE, total);
-    total += putInt(sendBuffer, f->fd, total);
-    (void) path;
-    sent = sendData(sockfd, sendBuffer, total);
-    (void) sent;
-
-    err = readInt(sockfd);
     pthread_mutex_unlock(&lock);
     return err;
 }
@@ -425,10 +508,10 @@ static int client_release(const char* path, struct fuse_file_info *fi){
 static int client_rename(const char* from, const char* to){
 	pthread_mutex_lock(&lock);
 	printf("CLIENT_RENAME %s  %s\n", from, to);
-	int sockfd = getSockfd(0);
+	int serv_index, sockfd, total = 0, from_len = strlen(from), to_len = strlen(to), err = -1, sent;
+    int * sockfd_arr = getSockfd_arr();
 	
 	char sendBuffer[1024];
-    int total = 0, from_len = strlen(from), to_len = strlen(to), err;
     total += putInt(sendBuffer, RENAME, total);
     total += putInt(sendBuffer, from_len, total);
     strcpy(sendBuffer + total, from);
@@ -437,11 +520,15 @@ static int client_rename(const char* from, const char* to){
     strcpy(sendBuffer + total, to);
     total += to_len;
 
-    // total += putInt(sendBuffer, (int)mode, total);
-    int sent = sendData(sockfd, sendBuffer, total);
-    (void) sent;
-	
-	err = readInt(sockfd);
+    for(serv_index = 0; serv_index < n_servers; serv_index ++){
+    	sockfd = sockfd_arr[serv_index];
+		sent = sendData(sockfd, sendBuffer, total);
+	    if(sent <= 0){
+    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+	    	continue;
+    	}
+		err = readInt(sockfd);
+	}
 	pthread_mutex_unlock(&lock);
     return err;
 }
@@ -452,18 +539,24 @@ static int client_rename(const char* from, const char* to){
 static int client_unlink(const char* path){
 	pthread_mutex_lock(&lock);
 	printf("CLIENT_UNLINK %s\n", path);
-	int sockfd = getSockfd(0);
+	int serv_index, sockfd, total = 0, path_len = strlen(path), err = -1, sent;
+    int * sockfd_arr = getSockfd_arr();
 	
 	char sendBuffer[1024];
-    int total = 0, path_len = strlen(path), err;
     total += putInt(sendBuffer, UNLINK, total);
     total += putInt(sendBuffer, path_len, total);
     strcpy(sendBuffer + total, path);
     total += path_len;
-    int sent = sendData(sockfd, sendBuffer, total);
-    (void) sent;
-	
-	err = readInt(sockfd);
+
+    for(serv_index = 0; serv_index < n_servers; serv_index ++){
+    	sockfd = sockfd_arr[serv_index];
+		sent = sendData(sockfd, sendBuffer, total);
+	    if(sent <= 0){
+    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+	    	continue;
+    	}
+		err = readInt(sockfd);
+	}
 	pthread_mutex_unlock(&lock);
     return err;
 }
@@ -472,18 +565,24 @@ static int client_unlink(const char* path){
 static int client_rmdir(const char* path){
 	pthread_mutex_lock(&lock);
 	printf("CLIENT_RMDIR %s\n", path);
-	int sockfd = getSockfd(0);
+	int serv_index, sockfd, total = 0, path_len = strlen(path), err = -1, sent;
+    int * sockfd_arr = getSockfd_arr();
 	
 	char sendBuffer[1024];
-    int total = 0, path_len = strlen(path), err;
     total += putInt(sendBuffer, RMDIR, total);
     total += putInt(sendBuffer, path_len, total);
     strcpy(sendBuffer + total, path);
     total += path_len;
-    int sent = sendData(sockfd, sendBuffer, total);
-    (void) sent;
-	
-	err = readInt(sockfd);
+    
+    for(serv_index = 0; serv_index < n_servers; serv_index ++){
+    	sockfd = sockfd_arr[serv_index];
+		sent = sendData(sockfd, sendBuffer, total);
+	    if(sent <= 0){
+    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+	    	continue;
+    	}
+		err = readInt(sockfd);
+	}
 	pthread_mutex_unlock(&lock);
     return err;
 }
@@ -492,19 +591,25 @@ static int client_rmdir(const char* path){
 static int client_mkdir(const char* path, mode_t mode){
 	pthread_mutex_lock(&lock);
 	printf("CLIENT_MKDIR %s\n", path);
-	int sockfd = getSockfd(0);
+	int serv_index, sockfd, total = 0, path_len = strlen(path), err = -1, sent;
+    int * sockfd_arr = getSockfd_arr();
 	
 	char sendBuffer[1024];
-    int total = 0, path_len = strlen(path), err;
     total += putInt(sendBuffer, MKDIR, total);
     total += putInt(sendBuffer, path_len, total);
     strcpy(sendBuffer + total, path);
     total += path_len;
     total += putInt(sendBuffer, (int)mode, total);
-    int sent = sendData(sockfd, sendBuffer, total);
-    (void) sent;
-	
-	err = readInt(sockfd);
+    
+    for(serv_index = 0; serv_index < n_servers; serv_index ++){
+    	sockfd = sockfd_arr[serv_index];
+	    sent = sendData(sockfd, sendBuffer, total);
+	    if(sent <= 0){
+    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+	    	continue;
+    	}
+		err = readInt(sockfd);
+	}
 	pthread_mutex_unlock(&lock);
     return err;
 }
@@ -512,10 +617,10 @@ static int client_mkdir(const char* path, mode_t mode){
 static int client_symlink(const char* from, const char * to){
 	pthread_mutex_lock(&lock);
 	printf("CLIENT_SYMLINK %s %s\n", from, to);
-	int sockfd = getSockfd(0);
+	int serv_index, sockfd, total = 0, path_len = strlen(from), path_len1 = strlen(to), err = -1, sent;
+    int * sockfd_arr = getSockfd_arr();
 	
 	char sendBuffer[1024];
-    int total = 0, path_len = strlen(from), path_len1 = strlen(to), err;
     total += putInt(sendBuffer, SYMLINK, total);
     total += putInt(sendBuffer, path_len, total);
     strcpy(sendBuffer + total, from);
@@ -524,11 +629,15 @@ static int client_symlink(const char* from, const char * to){
     strcpy(sendBuffer + total, to);
     total += path_len1;
 
-    // total += putInt(sendBuffer, (int)mode, total);
-    int sent = sendData(sockfd, sendBuffer, total);
-    (void) sent;
-	
-	err = readInt(sockfd);
+    for(serv_index = 0; serv_index < n_servers; serv_index ++){
+    	sockfd = sockfd_arr[serv_index];
+	    sent = sendData(sockfd, sendBuffer, total);
+	    if(sent <= 0){
+    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+	    	continue;
+    	}
+		err = readInt(sockfd);
+	}
 	pthread_mutex_unlock(&lock);
     return err;
 }
@@ -539,26 +648,35 @@ static int client_opendir(const char* path, struct fuse_file_info* fi){
 	printf("CLIENT_OPENDIR %s\n", path);
 	struct c_file *f = malloc(sizeof(struct c_file));
     memset(f, 0, sizeof(struct c_file));
-	int sockfd, sent, err, total = 0, path_len = strlen(path);
+	f->fd_arr = malloc(sizeof(int) * n_servers);
+    memset(f->fd_arr, 0, sizeof(int) * n_servers);
+
+	int serv_index, sockfd, err = -1, total = 0, path_len = strlen(path), sent;
 	char sendBuffer[1024];
     
-	sockfd = getSockfd(0);
+	int * sockfd_arr = getSockfd_arr();
 	
 	total += putInt(sendBuffer, OPENDIR, total);
     total += putInt(sendBuffer, path_len, total);
     strcpy(sendBuffer + total, path);
     total += path_len;
     
-    sent = sendData(sockfd, sendBuffer, total);
-    (void) sent;
-	
-    err = readInt(sockfd);
-    if(err == 0){
-		f->path = malloc(strlen(path) + 1);
-		strcpy(f->path, path);
-		f->fd = readInt(sockfd);
-		fi->fh = (long)f;
+    for(serv_index = 0; serv_index < n_servers; serv_index ++){
+    	sockfd = sockfd_arr[serv_index];
+	    sent = sendData(sockfd, sendBuffer, total);
+	    if(sent <= 0){
+    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+	    	continue;
+    	}
+		
+	    err = readInt(sockfd);
+	    if(err == 0){
+			f->path = malloc(strlen(path) + 1);
+			strcpy(f->path, path);
+			f->fd_arr[serv_index] = readInt(sockfd);
+		}
 	}
+	fi->fh = (long)f;
 	pthread_mutex_unlock(&lock);
 	return err;
 }
@@ -568,28 +686,39 @@ static int client_releasedir(const char* path, struct fuse_file_info *fi){
 	pthread_mutex_lock(&lock);
 	printf("CLIENT_RELEASEDIR %s\n", path);
 	struct c_file *f = (struct c_file *)fi->fh;
-	int sockfd, total = 0, path_len = strlen(path), sent = 0, err;
+	int serv_index, sockfd, total, path_len = strlen(path), err, fd, sent;
+	int * sockfd_arr = getSockfd_arr();
 	char sendBuffer[1024];
-    if(f == NULL){
-    	pthread_mutex_unlock(&lock);
-		return -EACCES;
-	}
-	if(f->fd <= 0){
-		pthread_mutex_unlock(&lock);
-		return -EACCES;
-	}
-	sockfd = getSockfd(0);
-	
-	total += putInt(sendBuffer, RELEASEDIR, total);
-    total += putInt(sendBuffer, path_len, total);
-    strcpy(sendBuffer + total, path);
-    total += path_len;
-    total += putInt(sendBuffer, f->fd, total);
-    
-    sent = sendData(sockfd, sendBuffer, total);
-    (void) sent;
 
-	err = readInt(sockfd);
+	for(serv_index = 0; serv_index < n_servers; serv_index ++){
+    	sockfd = sockfd_arr[serv_index];
+	    if(f == NULL){
+	  //   	pthread_mutex_unlock(&lock);
+			// return -EACCES;
+			continue;
+		}
+		if(f->fd_arr[serv_index] <= 0){
+			// pthread_mutex_unlock(&lock);
+			// return -EACCES;
+			continue;
+		}
+		total = 0;
+		fd = f->fd_arr[serv_index];
+
+		total += putInt(sendBuffer, RELEASEDIR, total);
+	    total += putInt(sendBuffer, path_len, total);
+	    strcpy(sendBuffer + total, path);
+	    total += path_len;
+	    total += putInt(sendBuffer, fd, total);
+	    
+	    sent = sendData(sockfd, sendBuffer, total);
+	    if(sent <= 0){
+    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+	    	continue;
+    	}
+
+		err = readInt(sockfd);
+	}
 	pthread_mutex_unlock(&lock);
     return err;
 }
@@ -602,27 +731,36 @@ static int client_utimens(const char*path, const struct timespec ts[2]){
 static int client_create(const char *path, mode_t mode, struct fuse_file_info *fi) {
 	pthread_mutex_lock(&lock);
 	printf("CLIENT_CREATE %s\n", path);
-	int sockfd = getSockfd(0);
+	int serv_index, sockfd, total, path_len = strlen(path), err = -1, sent;
+    int * sockfd_arr = getSockfd_arr();
 	
 	char sendBuffer[1024];
-    int total = 0, err, path_len = strlen(path);
-    total += putInt(sendBuffer, CREATE, total);
-    total += putInt(sendBuffer, path_len, total);
-    strcpy(sendBuffer + total, path);
-    total += path_len;
-    total += putInt(sendBuffer, (int)mode, total);
-    total += putInt(sendBuffer, (int)fi->flags, total);
-    
-    int sent = sendData(sockfd, sendBuffer, total);
-    (void) sent;
 
-    err = readInt(sockfd);
-    if(err != 0){
-    	pthread_mutex_unlock(&lock);
-    	return err;
-    }
-	
-    err = readInt(sockfd);
+	for(serv_index = 0; serv_index < n_servers; serv_index ++){
+    	sockfd = sockfd_arr[serv_index];
+	    total = 0;
+	    total += putInt(sendBuffer, CREATE, total);
+	    total += putInt(sendBuffer, path_len, total);
+	    strcpy(sendBuffer + total, path);
+	    total += path_len;
+	    total += putInt(sendBuffer, (int)mode, total);
+	    total += putInt(sendBuffer, (int)fi->flags, total);
+	    
+	    sent = sendData(sockfd, sendBuffer, total);
+	    if(sent <= 0){
+    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+	    	continue;
+    	}
+
+	    err = readInt(sockfd);
+	    if(err != 0){
+	    	// pthread_mutex_unlock(&lock);
+	    	// return err;
+	    	printf("ALERT! COULD NOT CREATE FILE %s ON SERVER %d\n", path, serv_index);
+	    	continue;
+	    }
+		err = readInt(sockfd);
+	}
     pthread_mutex_unlock(&lock);
 	return 0;
 }
@@ -631,37 +769,46 @@ static int client_truncate(const char *path, off_t size, struct fuse_file_info *
 	pthread_mutex_lock(&lock);
 	printf("CLIENT_TRUNCATE %s\n", path);
 	struct c_file *f = NULL;// = (struct c_file *)fi->fh;
-	int sockfd, total = 0, path_len = strlen(path), sent = 0, err, tfd = -1;
+	int serv_index, sockfd, total = 0, path_len = strlen(path), err = -1, tfd = -1, sent;
+	int * sockfd_arr = getSockfd_arr();
 	char sendBuffer[1024];
     printf("aq modis? 1\n");
 
-    if(f == NULL){
-		tfd = -1;
-	}else if(f->fd <= 0){
-		tfd = -1;
-	}else{
-		tfd = f->fd;
+
+	for(serv_index = 0; serv_index < n_servers; serv_index ++){
+		total = 0;
+    	sockfd = sockfd_arr[serv_index];
+	    if(f == NULL){
+			tfd = -1;
+		}else if(f->fd_arr[serv_index] <= 0){
+			tfd = -1;
+		}else{
+			tfd = f->fd_arr[serv_index];
+		}
+		printf("aq modis? 2   %d\n", tfd);
+
+	    total += putInt(sendBuffer, TRUNCATE, total);
+	    total += putInt(sendBuffer, path_len, total);
+	    strcpy(sendBuffer + total, path);
+	    total += path_len;
+	    total += putInt(sendBuffer, tfd, total);
+	    total += putInt(sendBuffer, (int)size, total);
+	    
+	    sent = sendData(sockfd, sendBuffer, total);
+	    if(sent <= 0){
+    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+	    	continue;
+    	}
+
+	    err = readInt(sockfd);
+	    if(err != 0){
+	    	// pthread_mutex_unlock(&lock);
+	    	// return err;
+	    	continue;
+	    }
+	    
+	    err = readInt(sockfd);
 	}
-	sockfd = getSockfd(0);
-	printf("aq modis? 2   %d\n", tfd);
-
-    total += putInt(sendBuffer, TRUNCATE, total);
-    total += putInt(sendBuffer, path_len, total);
-    strcpy(sendBuffer + total, path);
-    total += path_len;
-    total += putInt(sendBuffer, tfd, total);
-    total += putInt(sendBuffer, (int)size, total);
-    
-    sent = sendData(sockfd, sendBuffer, total);
-    (void) sent;
-
-    err = readInt(sockfd);
-    if(err != 0){
-    	pthread_mutex_unlock(&lock);
-    	return err;
-    }
-    
-    err = readInt(sockfd);
     pthread_mutex_unlock(&lock);
 	return err;	
 }
@@ -808,7 +955,7 @@ int parsecf(char * path){
 
 	printcf();
 
-
+	close(fd);
 	return 0;
 }	
 
@@ -826,9 +973,10 @@ int main(int argc, char *argv[])
 		printf("CONFIG: bad formatting of config file. exitting");
 		return 0;
 	}
-	sockfd_1 = -1;
-	sockfd_2 = -1;
-	s_fd_arr = NULL; 
+	// sockfd_1 = -1;
+	// sockfd_2 = -1;
+	s_fd_arr = NULL;
+	n_servers = mounts[0]->nServers; 
 	if (pthread_mutex_init(&lock, NULL) != 0)
     {
         printf("\n mutex init failed\n");
