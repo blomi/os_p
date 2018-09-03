@@ -15,6 +15,8 @@
 #include <string.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <math.h>
+
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -27,12 +29,16 @@
 
 #include <dirent.h>
 
+#define MAX(x, y) (((x) > (y)) ? (x) : (y))
+#define MIN(x, y) (((x) < (y)) ? (x) : (y))
+
 // static const char *hello_str = "Hello World!\n";
 // static const char *hello_path = "/hello";
 
 
 enum func{READDIR, GETATTR, OPEN, READ, MKDIR, RMDIR, UNLINK, SYMLINK, RELEASE, WRITE, OPENDIR, RELEASEDIR, RENAME, CREATE, TRUNCATE};
 enum file_type{ISREG, ISDIR, ISCHR, ISBLK, ISFIFO, ISLNK, ISSOCK, NOFILE};  //N_FILE = NO FILE EXISTED, DIR = DIRECTORY, R_FILE = REGULAR FILE
+enum file_system{RAID_1, RAID_5};
 
 pthread_mutex_t lock;
 
@@ -44,9 +50,13 @@ int timeout;
 int nMounts;
 
 int CHUNK_SIZE = 512;
+int BLOCK_SIZE = 512;
 
 int sockfd_1;
 int sockfd_2;
+
+enum file_system f_s;
+
 
 struct serv_addr{
 	char * ip;
@@ -156,6 +166,27 @@ int sendData(int sockfd, char * buffer, int size){
 	return sent;
 }
 
+
+
+
+int get_actual_size(int serv_index, int size){
+	int p_server = n_servers - 1;
+	int p_bytes = 0;
+	int t_size = size;
+	while(t_size > 0){
+		int bytes = MIN(BLOCK_SIZE, t_size);
+		if(p_server == serv_index)
+			p_bytes += bytes;
+		
+
+		p_server --;
+		if(p_server < 0)
+			p_server = n_servers - 1;
+		t_size -= bytes;
+	}
+	return size - p_bytes;
+}
+
 static int client_getattr(const char *path, struct stat *stbuf)
 {
 	pthread_mutex_lock(&lock);
@@ -181,35 +212,68 @@ static int client_getattr(const char *path, struct stat *stbuf)
     total += path_len;
 
 
-    for(serv_index = 0; serv_index < n_servers; serv_index ++){
-    	sockfd = sockfd_arr[serv_index];
 
-    	sent = sendData(sockfd, sendBuffer, total);
-	    if(sent <= 0){
-    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
-	    	continue;
-    	}
-	    
-		err = readInt(sockfd);
-		if (err == 0){
-			memset(stbuf, 0, sizeof(struct stat));
-			//stbuf->st_dev = 0; // ignored
-			//stbuf->st_ino = 0; // ignored for now
-			stbuf->st_mode = (mode_t) readInt(sockfd);
-			stbuf->st_nlink = (nlink_t) readInt(sockfd);
-			stbuf->st_uid = (uid_t) readInt(sockfd);
-			stbuf->st_gid = (gid_t) readInt(sockfd);
-			stbuf->st_rdev = (dev_t) readInt(sockfd);
-			//stbuf->st_blksize = 0; // ignored
-			stbuf->st_blocks = (blkcnt_t) readInt(sockfd);
-			stbuf->st_size = (off_t) readInt(sockfd);
-			stbuf->st_atime = time( NULL );
-			stbuf->st_mtime = time( NULL );
-			stbuf->st_ctime = time( NULL );
-		}
-		break;
+    if(f_s == RAID_1){
+		for(serv_index = 0; serv_index < n_servers; serv_index ++){
+	    	sockfd = sockfd_arr[serv_index];
 
-    }
+	    	sent = sendData(sockfd, sendBuffer, total);
+		    if(sent <= 0){
+	    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+		    	continue;
+	    	}
+		    
+			err = readInt(sockfd);
+			if (err == 0){
+				memset(stbuf, 0, sizeof(struct stat));
+				//stbuf->st_dev = 0; // ignored
+				//stbuf->st_ino = 0; // ignored for now
+				stbuf->st_mode = (mode_t) readInt(sockfd);
+				stbuf->st_nlink = (nlink_t) readInt(sockfd);
+				stbuf->st_uid = (uid_t) readInt(sockfd);
+				stbuf->st_gid = (gid_t) readInt(sockfd);
+				stbuf->st_rdev = (dev_t) readInt(sockfd);
+				//stbuf->st_blksize = 0; // ignored
+				stbuf->st_blocks = (blkcnt_t) readInt(sockfd);
+				stbuf->st_size = (off_t) readInt(sockfd);
+				stbuf->st_atime = time( NULL );
+				stbuf->st_mtime = time( NULL );
+				stbuf->st_ctime = time( NULL );
+			}
+			break;
+
+	    }
+	}else if(f_s == RAID_5){
+		stbuf->st_size = 0;
+		for(serv_index = 0; serv_index < n_servers; serv_index ++){
+	    	sockfd = sockfd_arr[serv_index];
+
+	    	sent = sendData(sockfd, sendBuffer, total);
+		    if(sent <= 0){
+	    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+		    	continue;
+	    	}
+		    
+			err = readInt(sockfd);
+			if (err == 0){
+				memset(stbuf, 0, sizeof(struct stat));
+				//stbuf->st_dev = 0; // ignored
+				//stbuf->st_ino = 0; // ignored for now
+				stbuf->st_mode = (mode_t) readInt(sockfd);
+				stbuf->st_nlink = (nlink_t) readInt(sockfd);
+				stbuf->st_uid = (uid_t) readInt(sockfd);
+				stbuf->st_gid = (gid_t) readInt(sockfd);
+				stbuf->st_rdev = (dev_t) readInt(sockfd);
+				//stbuf->st_blksize = 0; // ignored
+				stbuf->st_blocks = (blkcnt_t) readInt(sockfd);
+				stbuf->st_size += get_actual_size(serv_index, (off_t) readInt(sockfd));
+				stbuf->st_atime = time( NULL );
+				stbuf->st_mtime = time( NULL );
+				stbuf->st_ctime = time( NULL );
+			}
+	    }
+
+	}
 
     
 	pthread_mutex_unlock(&lock);
@@ -327,44 +391,58 @@ static int client_read(const char *path, char *buf, size_t size, off_t offset,
 	char sendBuffer[1024];
     int * sockfd_arr = getSockfd_arr();
 
-    for(serv_index = 0; serv_index < n_servers; serv_index ++){
-    	sockfd = sockfd_arr[serv_index];
-	    total = 0;
-	    if(f != NULL)
-			fd = f->fd_arr[serv_index];
-		else
-			fd = -1;
-	
-		total += putInt(sendBuffer, READ, total);
-	    total += putInt(sendBuffer, path_len, total);
-	    strcpy(sendBuffer + total, path);
-	    total += path_len;
-	    total += putInt(sendBuffer, fd, total);
-	    total += putInt(sendBuffer, size, total);
-	    total += putInt(sendBuffer, offset, total);
-    
 
-    	sent = sendData(sockfd, sendBuffer, total);
-	    if(sent <= 0){
-    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
-	    	continue;
+    if(f_s == RAID_1){
+    	for(serv_index = 0; serv_index < n_servers; serv_index ++){
+	    	sockfd = sockfd_arr[serv_index];
+		    total = 0;
+		    if(f != NULL)
+				fd = f->fd_arr[serv_index];
+			else
+				fd = -1;
+		
+			total += putInt(sendBuffer, READ, total);
+		    total += putInt(sendBuffer, path_len, total);
+		    strcpy(sendBuffer + total, path);
+		    total += path_len;
+		    total += putInt(sendBuffer, fd, total);
+		    total += putInt(sendBuffer, size, total);
+		    total += putInt(sendBuffer, offset, total);
+	    
+
+	    	sent = sendData(sockfd, sendBuffer, total);
+		    if(sent <= 0){
+	    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+		    	continue;
+	    	}
+		    err = readInt(sockfd);
+			if(err != 0){
+		    	continue;	
+			}
+			n_bytes = readInt(sockfd);
+			printf("****bytes read %d ******\n", n_bytes);
+			// char content[n_bytes + 1];
+			// if(n_bytes > 0){
+			read(sockfd, buf, n_bytes);
+		    // content[n_bytes] = '\0';
+		    // strcpy(buf, content);
+			// }
+			printf("READ_END: BYTES READ: %d\n", n_bytes);
+		    // memcpy(buf, content, n_bytes);
+		    break;
+	    }
+    }else if(f_s == RAID_5){
+    	int b_index = (int)(offset / BLOCK_SIZE);
+    	int stripe = b_index % (n_servers - 1);
+    	int s_size = size;
+    	while(s_size > 0){
+
+    		int serv_index = 
     	}
-	    err = readInt(sockfd);
-		if(err != 0){
-	    	continue;	
-		}
-		n_bytes = readInt(sockfd);
-		printf("****bytes read %d ******\n", n_bytes);
-		// char content[n_bytes + 1];
-		// if(n_bytes > 0){
-		read(sockfd, buf, n_bytes);
-	    // content[n_bytes] = '\0';
-	    // strcpy(buf, content);
-		// }
-		printf("READ_END: BYTES READ: %d\n", n_bytes);
-	    // memcpy(buf, content, n_bytes);
-	    break;
+
     }
+
+    
     pthread_mutex_unlock(&lock);
 	if(err != 0)
 		return err;
@@ -382,80 +460,83 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
     int * sockfd_arr = getSockfd_arr();
 
     
-
-    for(serv_index = 0; serv_index < n_servers; serv_index ++){
-    	sockfd = sockfd_arr[serv_index];
-    	total_written = 0;
-    	buf_offset = 0;
-    	s_size = size;
-    	total = 0;
-    
-	    if(f != NULL)
-			fd = f->fd_arr[serv_index];
-		else
-			fd = -1;
-
-		printf("WRITE: FILE DESCRIPTOR - %d\n", fd);
+    if(f_s == RAID_5){
+	    for(serv_index = 0; serv_index < n_servers; serv_index ++){
+	    	sockfd = sockfd_arr[serv_index];
+	    	total_written = 0;
+	    	buf_offset = 0;
+	    	s_size = size;
+	    	total = 0;
 	    
-		
-		char sendBuffer[4096];
-		printf("Size of buffer: %d, Total number of bytes to send: %d\n", (int)buf_len, (int)size);
-		total += putInt(sendBuffer, WRITE, total);
-	    total += putInt(sendBuffer, path_len, total);
-	    strcpy(sendBuffer + total, path);
-	    total += path_len;
-	    total += putInt(sendBuffer, fd, total);
-		
-		total += putInt(sendBuffer, size, total);
-		total += putInt(sendBuffer, offset, total);
+		    if(f != NULL)
+				fd = f->fd_arr[serv_index];
+			else
+				fd = -1;
 
+			printf("WRITE: FILE DESCRIPTOR - %d\n", fd);
+		    
+			
+			char sendBuffer[4096];
+			printf("Size of buffer: %d, Total number of bytes to send: %d\n", (int)buf_len, (int)size);
+			total += putInt(sendBuffer, WRITE, total);
+		    total += putInt(sendBuffer, path_len, total);
+		    strcpy(sendBuffer + total, path);
+		    total += path_len;
+		    total += putInt(sendBuffer, fd, total);
+			
+			total += putInt(sendBuffer, size, total);
+			total += putInt(sendBuffer, offset, total);
 
-		sent = sendData(sockfd, sendBuffer, total);
-		if(sent <= 0){
-    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
-	    	continue;
-    	}
-		
-		while(s_size > 0){
-			total = 0;
-		    send_size = s_size;
-			if(send_size > CHUNK_SIZE)
-				send_size = CHUNK_SIZE;
-			printf("Trying to send %d bytes over socket. bytes sent so far: %d \n", send_size, buf_offset);
-			total += putInt(sendBuffer, send_size, total);
-		    memcpy(sendBuffer + total, buff + buf_offset, send_size);
-		    total += send_size;
 
 			sent = sendData(sockfd, sendBuffer, total);
-			printf("SENT: %d\n", sent);
 			if(sent <= 0){
-	    		break;
+	    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+		    	continue;
 	    	}
-
-		    err = readInt(sockfd);
-		    printf("ERR1: %d\n", err);
-			if(err != 0){
-				printf("aq xoar shemodis?\n");
-				break;
-	   			// pthread_mutex_unlock(&lock);
-				// return err;	
-			}
 			
-			
-			b_written = readInt(sockfd);
-			printf("B_WRITTEN: %d\n", b_written);
-	    	total_written += b_written;
-	    	if(b_written < send_size){
-				break;    		
-	    	}
-			s_size -= send_size;
-	    	buf_offset += send_size;
-	    }
-	    if(err != 0){
-	    	printf("writing to sockfd %d FAILED. \n", sockfd);
-	    }
+			while(s_size > 0){
+				total = 0;
+			    send_size = s_size;
+				if(send_size > CHUNK_SIZE)
+					send_size = CHUNK_SIZE;
+				printf("Trying to send %d bytes over socket. bytes sent so far: %d \n", send_size, buf_offset);
+				total += putInt(sendBuffer, send_size, total);
+			    memcpy(sendBuffer + total, buff + buf_offset, send_size);
+			    total += send_size;
 
-    }
+				sent = sendData(sockfd, sendBuffer, total);
+				printf("SENT: %d\n", sent);
+				if(sent <= 0){
+		    		break;
+		    	}
+
+			    err = readInt(sockfd);
+			    printf("ERR1: %d\n", err);
+				if(err != 0){
+					printf("aq xoar shemodis?\n");
+					break;
+		   			// pthread_mutex_unlock(&lock);
+					// return err;	
+				}
+				
+				
+				b_written = readInt(sockfd);
+				printf("B_WRITTEN: %d\n", b_written);
+		    	total_written += b_written;
+		    	if(b_written < send_size){
+					break;    		
+		    	}
+				s_size -= send_size;
+		    	buf_offset += send_size;
+		    }
+		    if(err != 0){
+		    	printf("writing to sockfd %d FAILED. \n", sockfd);
+		    }
+
+	    }
+	}else if(f_s == RAID_1){
+
+	}
     
 	printf("WRITE_END\n\n");
     pthread_mutex_unlock(&lock);
@@ -982,6 +1063,11 @@ int main(int argc, char *argv[])
         printf("\n mutex init failed\n");
         return 1;
     }
+    f_s = RAID_1;
+    if(f_s == RAID_5)
+    	printf("RAID 55555");
+    else printf("RAID 111111");
+    // return 0;
 	printf("connecting to ip: %s   port: %d \n", mounts[0]->servers[0]->ip, mounts[0]->servers[0]->port);
 	// return 0;
 	argv[1] = mounts[0]->mountpoint;
