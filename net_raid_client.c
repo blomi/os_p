@@ -50,7 +50,7 @@ int timeout;
 int nMounts;
 
 int CHUNK_SIZE = 512;
-int BLOCK_SIZE = 512;
+int BLOCK_SIZE = 7;
 
 int sockfd_1;
 int sockfd_2;
@@ -115,8 +115,8 @@ int * getSockfd_arr(){
 
 	for(serv_index = 0; serv_index < n_servers; serv_index++){
 		if(s_fd_arr[serv_index] == -1){
-			ip = mounts[0]->servers[serv_index]->ip;
-			port = mounts[0]->servers[serv_index]->port;
+			ip = mounts[1]->servers[serv_index]->ip;
+			port = mounts[1]->servers[serv_index]->port;
 				
 			struct sockaddr_in serv_addr; 
 			if((s_fd_arr[serv_index] = socket(AF_INET, SOCK_STREAM, 0)) < 0){
@@ -184,6 +184,7 @@ int get_actual_size(int serv_index, int size){
 			p_server = n_servers - 1;
 		t_size -= bytes;
 	}
+	printf("server : %d, data size: %d, parity bytes count: %d\n", serv_index, size, p_bytes);
 	return size - p_bytes;
 }
 
@@ -245,6 +246,7 @@ static int client_getattr(const char *path, struct stat *stbuf)
 	    }
 	}else if(f_s == RAID_5){
 		stbuf->st_size = 0;
+		int total_size = 0;
 		for(serv_index = 0; serv_index < n_servers; serv_index ++){
 	    	sockfd = sockfd_arr[serv_index];
 
@@ -266,15 +268,20 @@ static int client_getattr(const char *path, struct stat *stbuf)
 				stbuf->st_rdev = (dev_t) readInt(sockfd);
 				//stbuf->st_blksize = 0; // ignored
 				stbuf->st_blocks = (blkcnt_t) readInt(sockfd);
-				stbuf->st_size += get_actual_size(serv_index, (off_t) readInt(sockfd));
+				total_size += get_actual_size(serv_index, (off_t) readInt(sockfd));
+				// printf("size so far: %d, size to add: %d\n", (int)(stbuf->st_size), data_size);
+				// stbuf->st_size += data_size;
+				// printf("updated size: %d\n", (int)(stbuf->st_size));
 				stbuf->st_atime = time( NULL );
 				stbuf->st_mtime = time( NULL );
 				stbuf->st_ctime = time( NULL );
 			}
 	    }
+	    stbuf->st_size = total_size;
 
 	}
 
+	printf("GETATTR SIZE************************* %d\n", (int)(stbuf->st_size));
     
 	pthread_mutex_unlock(&lock);
 	return err;
@@ -432,14 +439,65 @@ static int client_read(const char *path, char *buf, size_t size, off_t offset,
 		    break;
 	    }
     }else if(f_s == RAID_5){
-    	int b_index = (int)(offset / BLOCK_SIZE);
-    	int stripe = b_index % (n_servers - 1);
-    	int s_size = size;
-    	while(s_size > 0){
+    	// printf("requested size: %d\n", (int)size);
+    	// struct c_file * f = (struct c_file*)(fi->fh);
+    	// int r_size = 0;
+    	// if(f != NULL){
+    	// 	r_size = MIN(size, f->)
+    	// }
 
-    		int serv_index = 
-    	}
+    	int r_size = size;
+    	int w_offset = 0;
+    	while(r_size > 0){
+    		int b_index = (int)(offset / BLOCK_SIZE);
+    		int stripe = b_index / (n_servers - 1);
+    		int serv_index = b_index % n_servers;
+    		int b_offset = offset % BLOCK_SIZE;
+    		char tmpbuf[BLOCK_SIZE];
 
+    		int bytes_to_read = MIN(BLOCK_SIZE - b_offset, r_size);
+    		total = 0;
+		    
+		    sockfd = sockfd_arr[serv_index];
+		    if(f != NULL)
+				fd = f->fd_arr[serv_index];
+			else
+				fd = -1;
+
+			total += putInt(sendBuffer, READ, total);
+		    total += putInt(sendBuffer, path_len, total);
+		    strcpy(sendBuffer + total, path);
+		    total += path_len;
+		    total += putInt(sendBuffer, fd, total);
+		    total += putInt(sendBuffer, bytes_to_read, total);
+		    total += putInt(sendBuffer, stripe * BLOCK_SIZE + b_offset, total);
+
+
+		    sent = sendData(sockfd, sendBuffer, total);
+		    if(sent <= 0){
+	    		//TODO
+	    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+		    	continue;
+	    	}
+		    err = readInt(sockfd);
+			if(err != 0){
+				//TODO
+		    	continue;	
+			}
+			n_bytes = readInt(sockfd);
+			if(n_bytes == 0){
+				break;
+			}
+			printf("****bytes read %d ******\n", n_bytes);
+			read(sockfd, tmpbuf, n_bytes);
+			memcpy(buf + w_offset, tmpbuf, n_bytes);
+			w_offset += n_bytes;
+		    printf("READ_END: BYTES READ: %d\n", n_bytes);
+
+		    offset += n_bytes;
+		    r_size -= n_bytes;
+		}
+		n_bytes = w_offset;
     }
 
     
@@ -456,14 +514,13 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
 	printf("CLIENT_WRITE %s\n", path);
 	
 	struct c_file *f = (struct c_file *)fi->fh;
-	int serv_index, sockfd, fd, path_len = strlen(path), buf_len = strlen(buff), sent = 0, err, send_size, total = 0, b_written, total_written, s_size, buf_offset;
+	int serv_index, sockfd, fd, path_len = strlen(path), buf_len = strlen(buff), sent = 0, err, send_size, total = 0, b_written, total_written = 0, s_size, buf_offset;
     int * sockfd_arr = getSockfd_arr();
 
     
-    if(f_s == RAID_5){
+    if(f_s == RAID_1){
 	    for(serv_index = 0; serv_index < n_servers; serv_index ++){
 	    	sockfd = sockfd_arr[serv_index];
-	    	total_written = 0;
 	    	buf_offset = 0;
 	    	s_size = size;
 	    	total = 0;
@@ -534,13 +591,85 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
 		    }
 
 	    }
-	}else if(f_s == RAID_1){
+	}else if(f_s == RAID_5){
+		int w_size = size;
+    	int r_offset = 0;
+    	while(w_size > 0){
+    		int b_index = (int)(offset / BLOCK_SIZE);
+    		int stripe = b_index / (n_servers - 1);
+    		int serv_index = b_index % n_servers;
+    		int b_offset = offset % BLOCK_SIZE;
+    		// break;
+    		// char tmpbuf[BLOCK_SIZE];
+			char sendBuffer[4096];
+			
+    		int bytes_to_write = MIN(BLOCK_SIZE - b_offset, w_size);
+    		
+			printf("w_size: %d, size: %d, stripe: %d, serv_index: %d, b_offset: %d, r_offset: %d, bytes_to_write: %d\n", (int)w_size, (int)size, (int)stripe, (int)serv_index, (int)b_offset, (int)r_offset, bytes_to_write);
+    		
+    		total = 0;
+		    
+		    sockfd = sockfd_arr[serv_index];
+		    if(f != NULL)
+				fd = f->fd_arr[serv_index];
+			else
+				fd = -1;
+
+			// char old_data[BLOCK_SIZE];
+			// int read_len = read_block(old_data, serv_index, b_index, stripe, path_len, path, fd, bytes_to_write, b_offset);
+
+
+			total += putInt(sendBuffer, WRITE, total);
+		    total += putInt(sendBuffer, path_len, total);
+		    strcpy(sendBuffer + total, path);
+		    total += path_len;
+		    total += putInt(sendBuffer, fd, total);
+		    total += putInt(sendBuffer, bytes_to_write, total);
+		    total += putInt(sendBuffer, stripe * BLOCK_SIZE + b_offset, total);
+
+
+		    sent = sendData(sockfd, sendBuffer, total);
+		    if(sent <= 0){
+	    		//TODO
+	    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+		    	continue;
+	    	}
+
+	    	total = 0;
+	    	total += putInt(sendBuffer, bytes_to_write, total);
+		    memcpy(sendBuffer + total, buff + r_offset, bytes_to_write);
+		    total += bytes_to_write;
+
+			sent = sendData(sockfd, sendBuffer, total);
+			printf("SENT: %d\n", sent);
+			if(sent <= 0){
+	    		break;
+	    	}
+
+		    err = readInt(sockfd);
+			if(err != 0){
+				//TODO
+		    	continue;	
+			}
+			int n_bytes = readInt(sockfd);
+			total_written += n_bytes;
+			offset += n_bytes;
+			r_offset += n_bytes;
+		    w_size -= n_bytes;
+		}
 
 	}
     
 	printf("WRITE_END\n\n");
     pthread_mutex_unlock(&lock);
 	return total_written;
+}
+
+
+int read_block(char * old_data, int serv_index, int b_index, int stripe, int path_len, char * path, int fd, int bytes_to_write, int b_offset){
+
+
+	return 0;
 }
 
 //his is the only FUSE function that doesn't have a directly corresponding system call, although close(2) is related.
@@ -1057,20 +1186,20 @@ int main(int argc, char *argv[])
 	// sockfd_1 = -1;
 	// sockfd_2 = -1;
 	s_fd_arr = NULL;
-	n_servers = mounts[0]->nServers; 
+	n_servers = mounts[1]->nServers; 
 	if (pthread_mutex_init(&lock, NULL) != 0)
     {
         printf("\n mutex init failed\n");
         return 1;
     }
-    f_s = RAID_1;
+    f_s = RAID_5;
     if(f_s == RAID_5)
     	printf("RAID 55555");
     else printf("RAID 111111");
     // return 0;
-	printf("connecting to ip: %s   port: %d \n", mounts[0]->servers[0]->ip, mounts[0]->servers[0]->port);
+	// printf("connecting to ip: %s   port: %d \n", mounts[1]->servers[0]->ip, mounts[0]->servers[0]->port);
 	// return 0;
-	argv[1] = mounts[0]->mountpoint;
+	argv[1] = mounts[1]->mountpoint;
 	printf("argv1 : %s\n", argv[1]);
 	return fuse_main(argc, argv, &client_oper, NULL);
 }

@@ -174,6 +174,7 @@ int s_getattr(int connfd, char * path){
 		//total += putInt(sendBuffer, path_stat.st_blksize, 0);
 		total += putInt(sendBuffer, (int)path_stat.st_blocks, total);
 		total += putInt(sendBuffer, (int)path_stat.st_size, total);
+		printf("REQUESTED SIZE: %d\n", (int)path_stat.st_size);
 	}
 
     sent = sendData(connfd, sendBuffer, total);
