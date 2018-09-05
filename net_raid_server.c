@@ -285,7 +285,7 @@ int s_write(int connfd, char * path, int fd, int size, int offset){
 	char buff[4096];
 	int total = 0, sent = 0, err, b_written, total_written = 0, cowrite = 0;//cow = close_on_write
 	// recv(connfd, &buffer, buf_len, 0);
-			
+	
 	if(fd == -1){
     	fd = open(path, O_WRONLY);
     	if(fd == -1)
@@ -298,13 +298,14 @@ int s_write(int connfd, char * path, int fd, int size, int offset){
 	if(fd != -1){
 		printf("Starting to receive %d bytes long data for fd: %d\n", size, fd);
     	while(1){
+    		lseek(fd, 0, SEEK_SET);
     		total = 0;
     		printf("entering while loop...\n");
     		int btr = readInt(connfd);
     		printf("chunk size: %d\n", btr);
 			recv(connfd, &buff, btr, 0);
 			buff[btr] = '\0';
-			printf("received chunk. %s\n", buff);
+			printf("received chunk. %s, bytes_to_write: %d, offset: %d\n", buff, btr, offset);
 			b_written = pwrite(fd, buff, btr, offset);
 			if(b_written == -1){
 				total += putInt(sendBuffer, -errno, total);
