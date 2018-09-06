@@ -212,8 +212,7 @@ static int client_getattr(const char *path, struct stat *stbuf)
     total += putInt(sendBuffer, path_len, total);
     strcpy(sendBuffer + total, path);
     total += path_len;
-
-
+ 
 
     if(f_s == RAID_1){
 		for(serv_index = 0; serv_index < n_servers; serv_index ++){
@@ -252,10 +251,17 @@ static int client_getattr(const char *path, struct stat *stbuf)
 		for(int i = 0; i < n_servers; i++)
 			sizes[i] = 0;
 		// int total_size = 0;
+		int n_problematic = 0;
 		for(serv_index = 0; serv_index < n_servers; serv_index ++){
 	    	sockfd = sockfd_arr[serv_index];
-	    	if(sockfd == -1)
+	    	if(sockfd == -1){
+	    		sizes[serv_index] = -1;
+	    		n_servers_down ++;
+	    		if(n_servers_down > 1){
+	    			exit(-1);
+	    		}
 	    		continue;
+	    	}
 	    	sent = sendData(sockfd, sendBuffer, total);
 		    if(sent <= 0){
 		    	printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
@@ -268,6 +274,7 @@ static int client_getattr(const char *path, struct stat *stbuf)
 	    		continue;
 	    	}
 		    
+
 			err = readInt(sockfd);
 			if (err == 0){
 				memset(stbuf, 0, sizeof(struct stat));
@@ -289,23 +296,73 @@ static int client_getattr(const char *path, struct stat *stbuf)
 				stbuf->st_ctime = time( NULL );
 			}else{
 				printf("could not stat file??????????????????\n");
-				// return err;			}
+				sizes[serv_index] = -1;
+				n_problematic ++;
+				if(n_problematic > 1){
+					printf("problematic servers count: %d, unlocking and returning errno: %d\n", n_problematic, err);
+					pthread_mutex_unlock(&lock);
+					return err;
+				}
 			}
+	    }
+	    int max_index = 0;
+	    for(int i = 1; i < n_servers; i++){
+	    	if(sizes[max_index] < sizes[i]){
+	    		max_index = i;
+	    	}
 	    }
 	    for(int i = 0; i < n_servers; i++){
 	    	if(sizes[i] == -1){
-	    		int prev_server = i - 1;
-	    		if(i == 0){
-	    			prev_server = n_servers - 1;
-	    		}
-	    		if(sizes[prev_server] % BLOCK_SIZE == 0){
-	    			sizes[i] = sizes[prev_server];
-	    			if(prev_server == n_servers - 1){
-	    				sizes[i] += BLOCK_SIZE;
-	    			}
+	    		if(n_servers == 2){
+	    			sizes[i] = sizes[1 - i];
 	    		}else{
-	    			sizes[i] = 0;
-	    		}
+		    		// if(max_index < i){
+		    		// 	if(max_index = i - 1){
+		    		// 		if(sizes[max_index] % BLOCK_SIZE == 0){
+		    		// 			sizes[i] = sizes[max_index];
+		    		// 		}else{
+		    		// 			sizes[i] = sizes[max_index] - (sizes[max_index] % BLOCK_SIZE);
+		    		// 		}
+		    		// 	}else{
+		    		// 		if(sizes[max_index] % BLOCK_SIZE == 0){
+		    		// 			sizes[i] = sizes[max_index] - BLOCK_SIZE;
+		    		// 		}else{
+		    		// 			sizes[i] = sizes[max_index] - (sizes[max_index] % BLOCK_SIZE);
+		    		// 		}
+		    		// 	}
+		    		// }else{
+		    		// 	if(max_index = i + 1){
+		    		// 		if(sizes[max_index] % BLOCK_SIZE == 0){
+		    		// 			sizes[i] = sizes[max_index];
+		    		// 		}else{
+		    		// 			sizes[i] = sizes[max_index] - (sizes[max_index] % BLOCK_SIZE) + BLOCK_SIZE;
+		    		// 		}
+		    		// 	}else{
+		    		// 		sizes[i] = sizes[max_index];
+		    		// 	}
+		    		// }
+		    		sizes[i] = sizes[max_index];
+		    		sizes[i] = MAX(sizes[i], 0);
+		    	}
+
+	    		// if(i == 0){
+	    		// 	if(sizes[n_servers - 1] % BLOCK_SIZE == 0){
+	    		// 		sizes[i] = sizes[n_servers - 1] + BLOCK_SIZE;
+	    		// 	}
+	    		// }
+
+	    		// int prev_server = i - 1;
+	    		// if(i == 0){
+	    		// 	prev_server = n_servers - 1;
+	    		// }
+	    		// if(sizes[prev_server] % BLOCK_SIZE == 0){
+	    		// 	sizes[i] = sizes[prev_server];
+	    		// 	if(prev_server == n_servers - 1){
+	    		// 		sizes[i] += BLOCK_SIZE;
+	    		// 	}
+	    		// }else{
+	    		// 	sizes[i] = 0;
+	    		// }
 	    	}
 	    	stbuf->st_size += sizes[i];
 	    }
@@ -434,7 +491,7 @@ int myxor(char * c1, const char * c2, int len){
 }
 
 
-int write_block(const char * buffer, int serv_index, int sockfd, int b_index, int stripe, int path_len, const char * path, int fd, int num_bytes, int b_offset, int r_offset){
+int write_block(const char * buffer, int serv_index, int sockfd, int stripe, int path_len, const char * path, int fd, int num_bytes, int b_offset, int r_offset){
 	char sendBuffer[1024];
 	int total = 0, n_bytes; 
 	total += putInt(sendBuffer, WRITE, total); 
@@ -465,7 +522,7 @@ int write_block(const char * buffer, int serv_index, int sockfd, int b_index, in
     my_errno = readInt(sockfd);
 	if(my_errno != 0){
 		SERV_ERR = FUNCTION_ERR;
-		printf("ALERT! SERVER COULD NOT EXECUTE READ\n");
+		printf("ALERT! SERVER COULD NOT EXECUTE WRITE SYSCALL ON SERVER, ERRNO:  %d\n", my_errno);
     	return -1;	
 	}
 	n_bytes = readInt(sockfd);
@@ -474,7 +531,7 @@ int write_block(const char * buffer, int serv_index, int sockfd, int b_index, in
 
 
 
-int read_block(char * block, int serv_index, int sockfd, int b_index, int stripe, int path_len, const char * path, int fd, int num_bytes, int b_offset){
+int read_block(char * block, int serv_index, int sockfd, int stripe, int path_len, const char * path, int fd, int num_bytes, int b_offset){
 	char sendBuffer[1024];
 	int total = 0, n_bytes;
 	total += putInt(sendBuffer, READ, total);
@@ -505,18 +562,18 @@ int read_block(char * block, int serv_index, int sockfd, int b_index, int stripe
 	return n_bytes;
 }
 
-int recover_block(char * block, int serv_index, int b_index, int stripe, int path_len, const char * path, int fd, int num_bytes, int b_offset){
+int recover_block(char * block, int serv_index, int stripe, int path_len, const char * path, int fd, int num_bytes, int b_offset){
 	printf("STARTING RECOVERING BLOCK:\n");
 	int * sockfd_arr = getSockfd_arr();
 	int n_bytes = -1;
-	char tmp[BLOCK_SIZE];
+	char tmp[BLOCK_SIZE]; 
 	memset(block, 0, BLOCK_SIZE);
 	int ret = 0;
 	for(int i = 0; i < n_servers; i++){
 		if(i != serv_index){
 			memset(tmp, 0, BLOCK_SIZE);
 			printf("stripe: %d, serv_index: %d, b_offset: %d, bytes_to_read: %d\n", (int)stripe, (int)i, (int)b_offset, num_bytes);
-    		n_bytes = read_block(tmp, i, sockfd_arr[i], b_index, stripe, path_len, path, -1, num_bytes, b_offset);
+    		n_bytes = read_block(tmp, i, sockfd_arr[i], stripe, path_len, path, -1, num_bytes, b_offset);
 			if(n_bytes == -1)
 				return -1;
 			printf("n_bytes %d, content: %s\n", n_bytes, tmp);
@@ -604,24 +661,24 @@ static int client_read(const char *path, char *buf, size_t size, off_t offset,
 
 			printf("r_size: %d, size: %d, stripe: %d, serv_index: %d, b_offset: %d, w_offset: %d, bytes_to_read: %d\n", (int)r_size, (int)size, (int)stripe, (int)serv_index, (int)b_offset, (int)w_offset, bytes_to_read);
     		
-    		n_bytes = read_block(block, serv_index, sockfd, b_index, stripe, path_len, path, fd, bytes_to_read, b_offset);
+    		n_bytes = read_block(block, serv_index, sockfd, stripe, path_len, path, fd, bytes_to_read, b_offset);
     		if(n_bytes == -1){
-    			n_bytes = recover_block(block, serv_index, b_index, stripe, path_len, path, fd, bytes_to_read, b_offset);
-				if(n_bytes > 0){
+    			n_bytes = recover_block(block, serv_index, stripe, path_len, path, fd, bytes_to_read, b_offset);
+				if(n_bytes >= 0){
 					printf("***BLOCK RECOVERED! %d, %s\n", n_bytes, block);
+				}else if(SERV_ERR == FUNCTION_ERR){
+					err = my_errno;
+					break;
+				}else if(SERV_ERR == CONNECTION_ERR){
+					exit(-1);
+				}else{
+					printf("dunno this case\n");
 				}
 			}
-    		if(n_bytes == -1){
-    			exit(-1);
-    			//aq sheileba mtliani programa unda gavtisho?
-    			if(SERV_ERR == CONNECTION_ERR){
-    				continue;
-    			}else if(SERV_ERR == FUNCTION_ERR){
-    				err = my_errno;
-    				break;
-    			}
-    		}else if(n_bytes == 0){
+    		
+    		if(n_bytes == 0){
     			printf("aq modis vafshe?\n");
+    			err = 0;
     			break;
     		}else{
     			memcpy(buf + w_offset, block, n_bytes);
@@ -633,7 +690,7 @@ static int client_read(const char *path, char *buf, size_t size, off_t offset,
 			}
 		}
 		n_bytes = w_offset;
-    }
+	}
 
     
     pthread_mutex_unlock(&lock);
@@ -730,6 +787,9 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
 		// int w_size = MAX(0, size - 1);
 		int w_size = size;
     	int r_offset = 0;
+    	int n_servers_down = 0;
+    	int n_problematic = 0;
+    	int t_errno = 0;
     	while(w_size > 0){
     		int b_index = (int)(offset / BLOCK_SIZE);
     		int stripe = b_index / (n_servers - 1);
@@ -748,10 +808,28 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
 			else
 				fd = -1;
 
-			int old_read = read_block(old_block, serv_index, sockfd, b_index, stripe, path_len, path, -1, bytes_to_write, b_offset);
+			int old_read = read_block(old_block, serv_index, sockfd, stripe, path_len, path, -1, bytes_to_write, b_offset);
 			printf("old_read: %d\n", old_read);
+			if(old_read == -1){
+				if(SERV_ERR == CONNECTION_ERR){
+					n_servers_down ++;
+					if(n_servers_down > 1){
+						printf("number of servers down %d\n exitting", n_servers_down);
+						exit(-1);
+					}
+				}else if(SERV_ERR == FUNCTION_ERR){
+					n_problematic ++;
+					if(n_problematic + n_servers_down > 1){
+						printf("num of problematic %d, servers down %d > 1, returning errno", n_problematic, n_servers_down);
+						pthread_mutex_unlock(&lock);
+						return my_errno;
+					}
+				}else{
+					printf("unknown case;");
+				}
+			}
 
-			int n_bytes = write_block(buff, serv_index, sockfd, b_index, stripe, path_len, path, fd, bytes_to_write, b_offset, r_offset);
+			int n_bytes = write_block(buff, serv_index, sockfd, stripe, path_len, path, fd, bytes_to_write, b_offset, r_offset);
 			if(n_bytes == -1){
     			if(SERV_ERR == CONNECTION_ERR){
     				continue;
@@ -767,21 +845,17 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
 				memset(block_p, 0, BLOCK_SIZE);
 				int serv_index_p = n_servers - 1 - (stripe % n_servers);
 				int sockfd_p = sockfd_arr[serv_index_p];
-				int fd_p;
-				if(f != NULL)
-					fd_p = f->fd_arr[serv_index_p];
-				else
-					fd_p = -1;
-				int b_index_p = n_servers * stripe + serv_index_p;
-				read_block(block_p, serv_index_p, sockfd_p, b_index_p, stripe, path_len, path, -1, n_bytes, b_offset);
+				// int fd_p;
+				// if(f != NULL)
+				// 	fd_p = f->fd_arr[serv_index_p];
+				// else
+				// 	fd_p = -1;
+				read_block(block_p, serv_index_p, sockfd_p, stripe, path_len, path, -1, n_bytes, b_offset);
 				myxor(block_p, old_block, old_read);
 				myxor(block_p, buff + r_offset, n_bytes);
-				printf("PARITY ABOUT TO BE WRITTEN: %s, n_bytes: %d, b_index_p: %d, stripe: %d, b_offset: %d\n", block_p, n_bytes, b_index_p, stripe, b_offset);
-				int parity_write = write_block(block_p, serv_index_p, sockfd_p, b_index_p, stripe, path_len, path, -1, n_bytes, b_offset, b_offset);
-				printf("PARITY WRITE: %d\n", parity_write);
-				if(parity_write > 0){
-					printf("URAAAAAAAAAAAAA\n");
-				}
+				printf("PARITY ABOUT TO BE WRITTEN: %s, n_bytes: %d, stripe: %d, b_offset: %d\n", block_p, n_bytes, stripe, b_offset);
+				int parity_write = write_block(block_p, serv_index_p, sockfd_p, stripe, path_len, path, -1, n_bytes, b_offset, b_offset);
+				printf("**NUMBER OF BYTES WRITTEN ON PARITY: %d\n", parity_write);
 			}
 
 
