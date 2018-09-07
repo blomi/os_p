@@ -81,6 +81,7 @@ int s_opendir(int connfd, char * path){
 	char sendBuffer[1024];
     int total = 0, sent;
 	DIR * dirp = opendir(path);
+	size_t a = -5;
 	if(dirp == NULL){
 		printf("could not open directory: %s\n", path);
 		total += putInt(sendBuffer, -errno, total);
@@ -93,13 +94,16 @@ int s_opendir(int connfd, char * path){
 	return sent;
 }
 
-int s_releasedir(int connfd, char* path, int fd){
+int s_releasedir(int connfd, char* path, size_t fd){
 	char sendBuffer[1024];
 	int total = 0, sent, err;
-	err = closedir((DIR*)((size_t)fd));
-	if (err == -1)
-		total += putInt(sendBuffer, -errno, total);
-	else
+	// printf("aq ar modis vafshe? %d\n", fd);
+	// DIR * dp = (DIR*)((size_t)fd);
+	// err = closedir((DIR*)fd);
+	
+	// if (err == -1)
+	// 	total += putInt(sendBuffer, -errno, total);
+	// else
 		total += putInt(sendBuffer, 0, total);
 	sent = sendData(connfd, sendBuffer, total);
 	return sent;
@@ -501,9 +505,10 @@ int processData(int connfd){
 				path[path_len] = '\0';
 				fullpath = malloc(strlen(storage_dir) + strlen(path));
 				sprintf(fullpath, "%s%s", storage_dir, path + 1);
-				fd = readInt(connfd);
-				printf("Command:\tRELEASEDIR\nPath Length:\t%d\nPath:\t\t%s\nFD\t\t%d\n", path_len, fullpath, fd);
-				ret = s_releasedir(connfd, fullpath, fd);
+				// fd = readInt(connfd);
+				size_t myfd = readInt(connfd);
+				printf("Command:\tRELEASEDIR\nPath Length:\t%d\nPath:\t\t%s\nFD\t\t%d\n", path_len, fullpath, (int)myfd);
+				ret = s_releasedir(connfd, fullpath, myfd);
 				free(fullpath);
 				break;
 			case RENAME:
