@@ -39,6 +39,10 @@
 enum func{READDIR, GETATTR, OPEN, READ, MKDIR, RMDIR, UNLINK, SYMLINK, RELEASE, WRITE, OPENDIR, RELEASEDIR, RENAME, CREATE, TRUNCATE};
 enum file_type{ISREG, ISDIR, ISCHR, ISBLK, ISFIFO, ISLNK, ISSOCK, NOFILE};  //N_FILE = NO FILE EXISTED, DIR = DIRECTORY, R_FILE = REGULAR FILE
 enum file_system{RAID_1, RAID_5};
+enum s_error {CONNECTION_ERR, FUNCTION_ERR};
+
+enum s_error SERV_ERR;
+int my_errno;
 
 pthread_mutex_t lock;
 
@@ -82,7 +86,10 @@ struct c_file{
 
 
 int n_servers;
-int * s_fd_arr;
+int * s_fd_arr = NULL;
+int n_servers_down;
+int * d_servers = NULL;
+
 
 struct mount ** mounts;
 
@@ -102,6 +109,25 @@ int readInt(int connfd){
     return ntohl(raw);
 }
 
+int mark_down(int serv_index){
+	if(SERV_ERR == CONNECTION_ERR){
+		if(d_servers[serv_index] == 0){
+			d_servers[serv_index] = -1;
+			n_servers_down ++;
+			if(n_servers_down > 1){
+				printf("NUMBER OF SERVERS DOWN = %d, last server to went down: %d, exitting\n", n_servers_down, serv_index);
+				exit(-1);
+			}
+		}
+		return 0;
+	}else if(SERV_ERR == FUNCTION_ERR){
+		return -1;
+	}else{
+		printf("Unknown bug in program, please find your ruber duck, whatever u call it, to help you put yourself togather, to figure out what went down in this FUCKIN PROGRAMM!!!\n");
+		return 0;
+	}
+}
+
 int * getSockfd_arr(){
 	int serv_index;
 	char * ip;
@@ -111,6 +137,11 @@ int * getSockfd_arr(){
 		for(serv_index = 0; serv_index < n_servers; serv_index++)
 			s_fd_arr[serv_index] = -1;
 		
+	}
+	if(d_servers == NULL){
+		d_servers = malloc(sizeof(int) * n_servers);
+		for(serv_index = 0; serv_index < n_servers; serv_index++)
+			d_servers[serv_index] = 0;
 	}
 
 	for(serv_index = 0; serv_index < n_servers; serv_index++){
@@ -247,35 +278,20 @@ static int client_getattr(const char *path, struct stat *stbuf)
 	}else if(f_s == RAID_5){
 		stbuf->st_size = 0;
 		int sizes[n_servers];
-		int n_servers_down = 0;
 		for(int i = 0; i < n_servers; i++)
 			sizes[i] = 0;
 		// int total_size = 0;
-		int n_problematic = 0;
 		for(serv_index = 0; serv_index < n_servers; serv_index ++){
 	    	sockfd = sockfd_arr[serv_index];
-	    	if(sockfd == -1){
-	    		sizes[serv_index] = -1;
-	    		n_servers_down ++;
-	    		if(n_servers_down > 1){
-	    			exit(-1);
-	    		}
-	    		continue;
-	    	}
 	    	sent = sendData(sockfd, sendBuffer, total);
 		    if(sent <= 0){
+		    	SERV_ERR = CONNECTION_ERR;
+		    	mark_down(serv_index);
 		    	printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
 		    	sizes[serv_index] = -1;
-		    	n_servers_down ++;
-		    	printf("NUMBER OF SERVERS DOWN: %d\n", n_servers_down);
-		    	if(n_servers_down > 1){
-		    		exit(-1);
-		    	}
-	    		continue;
+		    	continue;
 	    	}
-		    
-
-			err = readInt(sockfd);
+		    err = readInt(sockfd);
 			if (err == 0){
 				memset(stbuf, 0, sizeof(struct stat));
 				//stbuf->st_dev = 0; // ignored
@@ -295,14 +311,9 @@ static int client_getattr(const char *path, struct stat *stbuf)
 				stbuf->st_mtime = time( NULL );
 				stbuf->st_ctime = time( NULL );
 			}else{
-				printf("could not stat file??????????????????\n");
-				sizes[serv_index] = -1;
-				n_problematic ++;
-				if(n_problematic > 1){
-					printf("problematic servers count: %d, unlocking and returning errno: %d\n", n_problematic, err);
-					pthread_mutex_unlock(&lock);
-					return err;
-				}
+				printf("could not stat file. returning errno %d\n", err);
+				pthread_mutex_unlock(&lock);
+				return err;
 			}
 	    }
 	    int max_index = 0;
@@ -316,59 +327,12 @@ static int client_getattr(const char *path, struct stat *stbuf)
 	    		if(n_servers == 2){
 	    			sizes[i] = sizes[1 - i];
 	    		}else{
-		    		// if(max_index < i){
-		    		// 	if(max_index = i - 1){
-		    		// 		if(sizes[max_index] % BLOCK_SIZE == 0){
-		    		// 			sizes[i] = sizes[max_index];
-		    		// 		}else{
-		    		// 			sizes[i] = sizes[max_index] - (sizes[max_index] % BLOCK_SIZE);
-		    		// 		}
-		    		// 	}else{
-		    		// 		if(sizes[max_index] % BLOCK_SIZE == 0){
-		    		// 			sizes[i] = sizes[max_index] - BLOCK_SIZE;
-		    		// 		}else{
-		    		// 			sizes[i] = sizes[max_index] - (sizes[max_index] % BLOCK_SIZE);
-		    		// 		}
-		    		// 	}
-		    		// }else{
-		    		// 	if(max_index = i + 1){
-		    		// 		if(sizes[max_index] % BLOCK_SIZE == 0){
-		    		// 			sizes[i] = sizes[max_index];
-		    		// 		}else{
-		    		// 			sizes[i] = sizes[max_index] - (sizes[max_index] % BLOCK_SIZE) + BLOCK_SIZE;
-		    		// 		}
-		    		// 	}else{
-		    		// 		sizes[i] = sizes[max_index];
-		    		// 	}
-		    		// }
 		    		sizes[i] = sizes[max_index];
 		    		sizes[i] = MAX(sizes[i], 0);
 		    	}
-
-	    		// if(i == 0){
-	    		// 	if(sizes[n_servers - 1] % BLOCK_SIZE == 0){
-	    		// 		sizes[i] = sizes[n_servers - 1] + BLOCK_SIZE;
-	    		// 	}
-	    		// }
-
-	    		// int prev_server = i - 1;
-	    		// if(i == 0){
-	    		// 	prev_server = n_servers - 1;
-	    		// }
-	    		// if(sizes[prev_server] % BLOCK_SIZE == 0){
-	    		// 	sizes[i] = sizes[prev_server];
-	    		// 	if(prev_server == n_servers - 1){
-	    		// 		sizes[i] += BLOCK_SIZE;
-	    		// 	}
-	    		// }else{
-	    		// 	sizes[i] = 0;
-	    		// }
 	    	}
 	    	stbuf->st_size += sizes[i];
 	    }
-
-	    // stbuf->st_size = total_size;
-
 	}
 
 	printf("GETATTR SIZE************************* %d\n", (int)(stbuf->st_size));
@@ -478,9 +442,7 @@ static int client_open(const char *path, struct fuse_file_info *fi)
 	return err;
 }
 
-enum s_error {CONNECTION_ERR, FUNCTION_ERR};
-enum s_error SERV_ERR;
-int my_errno;
+
 
 int myxor(char * c1, const char * c2, int len){
 	int i;
@@ -489,6 +451,10 @@ int myxor(char * c1, const char * c2, int len){
 	}
 	return 0;
 }
+
+
+
+
 
 
 int write_block(const char * buffer, int serv_index, int sockfd, int stripe, int path_len, const char * path, int fd, int num_bytes, int b_offset, int r_offset){
@@ -574,8 +540,10 @@ int recover_block(char * block, int serv_index, int stripe, int path_len, const 
 			memset(tmp, 0, BLOCK_SIZE);
 			printf("stripe: %d, serv_index: %d, b_offset: %d, bytes_to_read: %d\n", (int)stripe, (int)i, (int)b_offset, num_bytes);
     		n_bytes = read_block(tmp, i, sockfd_arr[i], stripe, path_len, path, -1, num_bytes, b_offset);
-			if(n_bytes == -1)
-				return -1;
+			if(n_bytes == -1){
+				mark_down(i);
+				return -1;	
+			}
 			printf("n_bytes %d, content: %s\n", n_bytes, tmp);
 			myxor(block, tmp, n_bytes);
 			ret = MAX(ret, n_bytes);
@@ -663,16 +631,14 @@ static int client_read(const char *path, char *buf, size_t size, off_t offset,
     		
     		n_bytes = read_block(block, serv_index, sockfd, stripe, path_len, path, fd, bytes_to_read, b_offset);
     		if(n_bytes == -1){
-    			n_bytes = recover_block(block, serv_index, stripe, path_len, path, fd, bytes_to_read, b_offset);
-				if(n_bytes >= 0){
-					printf("***BLOCK RECOVERED! %d, %s\n", n_bytes, block);
-				}else if(SERV_ERR == FUNCTION_ERR){
-					err = my_errno;
-					break;
-				}else if(SERV_ERR == CONNECTION_ERR){
-					exit(-1);
-				}else{
-					printf("dunno this case\n");
+    			if(mark_down(serv_index) < 0){
+    				pthread_mutex_unlock(&lock);
+    				return my_errno;
+    			}
+				n_bytes = recover_block(block, serv_index, stripe, path_len, path, fd, bytes_to_read, b_offset);
+				if(n_bytes == -1){
+					pthread_mutex_unlock(&lock);
+					return my_errno;
 				}
 			}
     		
@@ -698,6 +664,9 @@ static int client_read(const char *path, char *buf, size_t size, off_t offset,
 		return err;
     return n_bytes;
 }
+
+
+
 
 
 //As for read above, except that it can't return 0.
@@ -739,7 +708,7 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
 
 			sent = sendData(sockfd, sendBuffer, total);
 			if(sent <= 0){
-	    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+				printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
 		    	continue;
 	    	}
 			
@@ -787,22 +756,21 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
 		// int w_size = MAX(0, size - 1);
 		int w_size = size;
     	int r_offset = 0;
-    	int n_servers_down = 0;
-    	int n_problematic = 0;
-    	int t_errno = 0;
+    	
     	while(w_size > 0){
     		int b_index = (int)(offset / BLOCK_SIZE);
     		int stripe = b_index / (n_servers - 1);
     		int serv_index = b_index % n_servers;
     		int b_offset = offset % BLOCK_SIZE;
     		char old_block[BLOCK_SIZE];
-    		
+    		int n_bytes = -1;
     		int bytes_to_write = MIN(BLOCK_SIZE - b_offset, w_size);
     		
 			printf("w_size: %d, size: %d, stripe: %d, serv_index: %d, b_offset: %d, r_offset: %d, bytes_to_write: %d\n", (int)w_size, (int)size, (int)stripe, (int)serv_index, (int)b_offset, (int)r_offset, bytes_to_write);
     		
 
 		    sockfd = sockfd_arr[serv_index];
+		    
 		    if(f != NULL)
 				fd = f->fd_arr[serv_index];
 			else
@@ -811,33 +779,23 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
 			int old_read = read_block(old_block, serv_index, sockfd, stripe, path_len, path, -1, bytes_to_write, b_offset);
 			printf("old_read: %d\n", old_read);
 			if(old_read == -1){
-				if(SERV_ERR == CONNECTION_ERR){
-					n_servers_down ++;
-					if(n_servers_down > 1){
-						printf("number of servers down %d\n exitting", n_servers_down);
-						exit(-1);
-					}
-				}else if(SERV_ERR == FUNCTION_ERR){
-					n_problematic ++;
-					if(n_problematic + n_servers_down > 1){
-						printf("num of problematic %d, servers down %d > 1, returning errno", n_problematic, n_servers_down);
-						pthread_mutex_unlock(&lock);
-						return my_errno;
-					}
-				}else{
-					printf("unknown case;");
+				if(mark_down(serv_index) < 0){
+					pthread_mutex_unlock(&lock);
+					return my_errno;
+				}
+				old_read = recover_block(old_block, serv_index, stripe, path_len, path, fd, bytes_to_write, b_offset);
+				if(old_read == -1){
+					pthread_mutex_unlock(&lock);
+					return my_errno;
 				}
 			}
+			if(d_servers[serv_index] != -1){
+				n_bytes = write_block(buff, serv_index, sockfd, stripe, path_len, path, fd, bytes_to_write, b_offset, r_offset);
+			}else{
+				n_bytes = bytes_to_write;
+			}
 
-			int n_bytes = write_block(buff, serv_index, sockfd, stripe, path_len, path, fd, bytes_to_write, b_offset, r_offset);
-			if(n_bytes == -1){
-    			if(SERV_ERR == CONNECTION_ERR){
-    				continue;
-    			}else if(SERV_ERR == FUNCTION_ERR){
-    				err = my_errno;
-    				break;
-    			}
-    		}else if(n_bytes == 0){
+			if(n_bytes == 0){
     			printf("aq modis vafshe?\n");
     			break;
     		}else{
@@ -850,15 +808,17 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
 				// 	fd_p = f->fd_arr[serv_index_p];
 				// else
 				// 	fd_p = -1;
-				read_block(block_p, serv_index_p, sockfd_p, stripe, path_len, path, -1, n_bytes, b_offset);
-				myxor(block_p, old_block, old_read);
-				myxor(block_p, buff + r_offset, n_bytes);
-				printf("PARITY ABOUT TO BE WRITTEN: %s, n_bytes: %d, stripe: %d, b_offset: %d\n", block_p, n_bytes, stripe, b_offset);
-				int parity_write = write_block(block_p, serv_index_p, sockfd_p, stripe, path_len, path, -1, n_bytes, b_offset, b_offset);
-				printf("**NUMBER OF BYTES WRITTEN ON PARITY: %d\n", parity_write);
+				int p_read = read_block(block_p, serv_index_p, sockfd_p, stripe, path_len, path, -1, n_bytes, b_offset);
+				if(p_read == -1){
+					mark_down(serv_index_p);
+				}else{
+					myxor(block_p, old_block, old_read);
+					myxor(block_p, buff + r_offset, n_bytes);
+					printf("PARITY ABOUT TO BE WRITTEN: %s, n_bytes: %d, stripe: %d, b_offset: %d\n", block_p, n_bytes, stripe, b_offset);
+					int parity_write = write_block(block_p, serv_index_p, sockfd_p, stripe, path_len, path, -1, n_bytes, b_offset, b_offset);
+					printf("**NUMBER OF BYTES WRITTEN ON PARITY: %d\n", parity_write);
+				}
 			}
-
-
 
 			total_written += n_bytes;
 			offset += n_bytes;
@@ -872,6 +832,9 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
     pthread_mutex_unlock(&lock);
 	return total_written;
 }
+
+
+
 
 
 
@@ -1391,6 +1354,7 @@ int main(int argc, char *argv[])
 	// sockfd_2 = -1;
 	s_fd_arr = NULL;
 	n_servers = mounts[1]->nServers; 
+	n_servers_down = 0;
 	if (pthread_mutex_init(&lock, NULL) != 0)
     {
         printf("\n mutex init failed\n");
