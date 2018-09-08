@@ -50,6 +50,7 @@ int mountIndex;
 pthread_mutex_t lock;
 
 char * log_path;
+FILE* log_f;
 int cacheSize;
 char * replace;
 int timeout;
@@ -96,7 +97,16 @@ int * d_servers = NULL;
 
 struct mount ** mounts;
 
+void log_message(int serv_index, char* message){
+	time_t rawtime;
+	struct tm * timeinfo;
 
+	time ( &rawtime );
+	timeinfo = localtime ( &rawtime );
+	fprintf(log_f, "date: %s%s %s:%i %s \n", asctime (timeinfo), 
+		mounts[mountIndex]->diskname, mounts[mountIndex]->servers[serv_index]->ip,mounts[mountIndex]->servers[serv_index]->port, message );
+	fflush(log_f);
+}
 
 int putInt(char * buffer, int num, int offset){
     uint32_t tmp;
@@ -116,8 +126,10 @@ int mark_down(int serv_index){
 	if(SERV_ERR == CONNECTION_ERR){
 		if(d_servers[serv_index] == 0){
 			d_servers[serv_index] = -1;
+			log_message(serv_index, "JUST went down.\n");
 			n_servers_down ++;
 			if(n_servers_down > 1){
+				log_message(serv_index, "Last server to went down. number of servers down : 2 program can not exec further of this point. exitting.\n");
 				printf("NUMBER OF SERVERS DOWN = %d, last server to went down: %d, exitting\n", n_servers_down, serv_index);
 				exit(-1);
 			}
@@ -126,7 +138,7 @@ int mark_down(int serv_index){
 	}else if(SERV_ERR == FUNCTION_ERR){
 		return -1;
 	}else{
-		printf("Unknown bug in program, please find your ruber duck, whatever u call it, to help you put yourself togather, to figure out what went down in this FUCKIN PROGRAMM!!!\n");
+		printf("Unknown bug in program, please, find your ruber duck, or whatever u call it, to help you put yourself togather, to figure out what went down wrong in this FUCKIN PROGRAMM!!!\n");
 		return 0;
 	}
 }
@@ -166,6 +178,7 @@ int * getSockfd_arr(){
 			if(connect(s_fd_arr[serv_index], (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0){
 		       continue;
 		    }
+		    log_message(serv_index, "Connection established. ready to exchange data.\n");
 		    printf("CONNECTION TO SERVER: %d WAS ESTABLISHED.\n", serv_index);
 		}
 	}
@@ -1304,6 +1317,13 @@ int parsecf(char * path){
 	
 	int bytes = readLine(lineBuffer, fd);
 	log_path = getValue(lineBuffer);
+
+	log_f = fopen(log_path, "a+");
+	if (log_f == NULL){
+		printf("couldn't create log file.\n");
+		return -1;
+	}
+
 	
 	bytes = readLine(lineBuffer, fd);
 	cacheSize = strtol(getValue(lineBuffer), (char **)NULL, 10);
@@ -1398,9 +1418,12 @@ int main(int argc, char *argv[])
 
 	// 	}
 	// }
+	
+	// return 0;
 	pids = malloc(nMounts * sizeof(int));
 	for(int i = 0; i < nMounts; i++){
-		// if(i != 0) continue;
+		
+		if(i != 1) continue;
 		if ((pids[i] = fork()) < 0){
 			exit(100);
 		} else if (pids[i] == 0){

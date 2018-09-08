@@ -1,0 +1,20 @@
+date: Sat Sep  8 17:04:30 2018
+STORAGE1 127.0.0.1:10002 opalaaa 
+date: Sat Sep  8 17:30:08 2018
+STORAGE2 127.0.0.1:10011 Connection established. ready to exchange data.
+ 
+date: Sat Sep  8 17:30:08 2018
+STORAGE2 127.0.0.1:10012 Connection established. ready to exchange data.
+ 
+date: Sat Sep  8 17:30:08 2018
+STORAGE2 127.0.0.1:10013 Connection established. ready to exchange data.
+ 
+date: Sat Sep  8 17:31:19 2018
+STORAGE2 127.0.0.1:10011 JUST went down.
+ 
+date: Sat Sep  8 17:31:48 2018
+STORAGE2 127.0.0.1:10012 JUST went down.
+ 
+date: Sat Sep  8 17:31:48 2018
+STORAGE2 127.0.0.1:10012 Last server to went down. number of servers down : 2 program can not exec further of this point. exitting.
+ 
