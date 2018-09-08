@@ -25,7 +25,7 @@ enum file_type{ISREG, ISDIR, ISCHR, ISBLK, ISFIFO, ISLNK, ISSOCK, NOFILE};  //N_
 
 int sendData(int connfd, char * data, int data_len){
 	int total = data_len;
-    printf("total???  %d\n", total);
+    // printf("total???  %d\n", total);
     int sent = 0, bytes = 0;
     do {
         bytes = write(connfd,data+sent,total-sent);
@@ -83,7 +83,7 @@ int s_opendir(int connfd, char * path){
 	DIR * dirp = opendir(path);
 	// size_t a = -5;
 	if(dirp == NULL){
-		printf("could not open directory: %s\n", path);
+		// printf("could not open directory: %s\n", path);
 		total += putInt(sendBuffer, -errno, total);
 	}else{
 		// printf("directory  %s opened\n, file descriptor: %d\n", path, (int)dirp);
@@ -115,10 +115,10 @@ int s_open(int connfd, char * path, int flags){
     int total = 0, fd, sent = 0;
 	fd = open(path, flags);
 	if (fd < 0){
-		printf("could not open file: %s\n", path);
+		// printf("could not open file: %s\n", path);
 		total += putInt(sendBuffer, -errno, total);
 	}else{
-		printf("file - %s -  opened succesfully, file descriptor: %d\n", path, fd);
+		// printf("file - %s -  opened succesfully, file descriptor: %d\n", path, fd);
 		total += putInt(sendBuffer, 0, total);
 		total += putInt(sendBuffer, fd, total);
 	}
@@ -136,7 +136,7 @@ int num_dirs(const char* path)
 
     if (srcdir == NULL)
     {
-        printf("No DIRECTORY");
+        // printf("No DIRECTORY");
         return -1;
     }
 
@@ -165,7 +165,7 @@ int s_getattr(int connfd, char * path){
 	struct stat path_stat;
 	if ((error = stat(path, &path_stat)) < 0){
 		total += putInt(sendBuffer, -errno, total);
-		printf("could not stat file\n");
+		// printf("could not stat file\n");
 	}else{
 		total += putInt(sendBuffer, 0, total);
 		//total += putInt(sendBuffer, path_stat.st_dev, total);
@@ -178,7 +178,7 @@ int s_getattr(int connfd, char * path){
 		//total += putInt(sendBuffer, path_stat.st_blksize, 0);
 		total += putInt(sendBuffer, (int)path_stat.st_blocks, total);
 		total += putInt(sendBuffer, (int)path_stat.st_size, total);
-		printf("REQUESTED SIZE: %d\n", (int)path_stat.st_size);
+		// printf("REQUESTED SIZE: %d\n", (int)path_stat.st_size);
 	}
 
     sent = sendData(connfd, sendBuffer, total);
@@ -272,7 +272,7 @@ int s_read(int connfd, char * path, int fd, int size, int offset){
 		if(b_read == -1)
 			total += putInt(sendBuffer, -errno, total);
 		else{
-			printf("****bytes read %d ******\n", b_read);
+			// printf("****bytes read %d ******\n", b_read);
 			total += putInt(sendBuffer, 0, total);
 			total += putInt(sendBuffer, b_read, total);
 			memcpy(sendBuffer + total, buff, b_read);
@@ -301,22 +301,22 @@ int s_write(int connfd, char * path, int fd, int size, int offset){
     
 
 	if(fd != -1){
-		printf("Starting to receive %d bytes long data for fd: %d\n", size, fd);
+		// printf("Starting to receive %d bytes long data for fd: %d\n", size, fd);
     	while(1){
     		lseek(fd, 0, SEEK_SET);
     		total = 0;
-    		printf("entering while loop...\n");
+    		// printf("entering while loop...\n");
     		int btr = readInt(connfd);
-    		printf("chunk size: %d\n", btr);
+    		// printf("chunk size: %d\n", btr);
 			recv(connfd, &buff, btr, 0);
 			buff[btr] = '\0';
-			printf("received chunk. %s, bytes_to_write: %d, offset: %d\n", buff, btr, offset);
+			// printf("received chunk. %s, bytes_to_write: %d, offset: %d\n", buff, btr, offset);
 			b_written = pwrite(fd, buff, btr, offset);
 			if(b_written == -1){
 				total += putInt(sendBuffer, -errno, total);
 			}else{
 				total += putInt(sendBuffer, 0, total);
-				printf("B_WRITTEN: %d\n", b_written);
+				// printf("B_WRITTEN: %d\n", b_written);
 				total += putInt(sendBuffer, b_written, total);
 				offset += b_written;
 				total_written += b_written;
@@ -329,7 +329,7 @@ int s_write(int connfd, char * path, int fd, int size, int offset){
 				break;
 		}
     }else{
-    	printf("could not open file:  %s\n", path);
+    	// printf("could not open file:  %s\n", path);
     	sent = sendData(connfd, sendBuffer, total);
     }
     
@@ -389,7 +389,7 @@ int processData(int connfd){
 				path[path_len] = '\0';
 				fullpath = malloc(strlen(storage_dir) + strlen(path));
 				sprintf(fullpath, "%s%s", storage_dir, path + 1);
-				printf("Command:\tREADDIR\nPath Length:\t%d\nPath:\t\t%s\n", path_len, fullpath);
+				// printf("Command:\tREADDIR\nPath Length:\t%d\nPath:\t\t%s\n", path_len, fullpath);
 				ret = s_readdir(connfd, fullpath);
 				free(fullpath);
 				break;
@@ -399,7 +399,7 @@ int processData(int connfd){
 				path[path_len] = '\0';
 				fullpath = malloc(strlen(storage_dir) + strlen(path));
 				sprintf(fullpath, "%s%s", storage_dir, path + 1);
-				printf("Command:\tGETATTR\nPath Length:\t%d\nPath:\t\t%s\n", path_len, fullpath);
+				// printf("Command:\tGETATTR\nPath Length:\t%d\nPath:\t\t%s\n", path_len, fullpath);
 				ret = s_getattr(connfd, fullpath);
 				free(fullpath);
 				break;
@@ -410,7 +410,7 @@ int processData(int connfd){
 				fullpath = malloc(strlen(storage_dir) + strlen(path));
 				sprintf(fullpath, "%s%s", storage_dir, path + 1);
 				flags = readInt(connfd);
-				printf("Command:\tOPEN\nPath Length:\t%d\nPath:\t\t%s\nFlags:\t\t%d\n", path_len, fullpath, flags);
+				// printf("Command:\tOPEN\nPath Length:\t%d\nPath:\t\t%s\nFlags:\t\t%d\n", path_len, fullpath, flags);
 				ret = s_open(connfd, fullpath, flags);
 				free(fullpath);
 				break;
@@ -423,7 +423,7 @@ int processData(int connfd){
 				fd = readInt(connfd);
 				size = readInt(connfd);
 				offset = readInt(connfd);
-				printf("Command:\tREAD\nPath Length:\t%d\nPath:\t\t%s\nFD:\t%d\nSize:\t\t%d\nOffset:\t\t%d\n", path_len, path, fd, size, offset);
+				// printf("Command:\tREAD\nPath Length:\t%d\nPath:\t\t%s\nFD:\t%d\nSize:\t\t%d\nOffset:\t\t%d\n", path_len, path, fd, size, offset);
 				ret = s_read(connfd, fullpath, fd, size, offset);
 				free(fullpath);
 				break;
@@ -434,7 +434,7 @@ int processData(int connfd){
 				fullpath = malloc(strlen(storage_dir) + strlen(path));
 				sprintf(fullpath, "%s%s", storage_dir, path + 1);
 				mode = readInt(connfd);
-				printf("Command:\tMKDIR\nPath Length:\t%d\nPath:\t\t%s\nMODE:\t%d\n", path_len, fullpath, mode);
+				// printf("Command:\tMKDIR\nPath Length:\t%d\nPath:\t\t%s\nMODE:\t%d\n", path_len, fullpath, mode);
 				ret = s_mkdir(connfd, fullpath, mode);
 				free(fullpath);
 				break;
@@ -444,7 +444,7 @@ int processData(int connfd){
 				path[path_len] = '\0';
 				fullpath = malloc(strlen(storage_dir) + strlen(path));
 				sprintf(fullpath, "%s%s", storage_dir, path + 1);
-				printf("Command:\tRMDIR\nPath Length:\t%d\nPath:\t\t%s\n", path_len, fullpath);
+				// printf("Command:\tRMDIR\nPath Length:\t%d\nPath:\t\t%s\n", path_len, fullpath);
 				ret = s_rmdir(connfd, fullpath);
 				free(fullpath);
 				break;
@@ -454,7 +454,7 @@ int processData(int connfd){
 				path[path_len] = '\0';
 				fullpath = malloc(strlen(storage_dir) + strlen(path));
 				sprintf(fullpath, "%s%s", storage_dir, path + 1);
-				printf("Command:\tUNLINK\nPath Length:\t%d\nPath:\t\t%s\n", path_len, fullpath);
+				// printf("Command:\tUNLINK\nPath Length:\t%d\nPath:\t\t%s\n", path_len, fullpath);
 				ret = s_unlink(connfd, fullpath);
 				free(fullpath);
 				break;
@@ -469,14 +469,14 @@ int processData(int connfd){
 				path1[path_len1] = '\0';
 				fullpath1 = malloc(strlen(storage_dir) + strlen(path1));
 				sprintf(fullpath1, "%s%s", storage_dir, path1 + 1);
-				printf("Command:\tSYMLINK\nPath Length:\t%d\nPath:\t\t%s\nPath1 Length:\t%d\nPath1\t%s\n", path_len, fullpath, path_len1, fullpath1);
+				// printf("Command:\tSYMLINK\nPath Length:\t%d\nPath:\t\t%s\nPath1 Length:\t%d\nPath1\t%s\n", path_len, fullpath, path_len1, fullpath1);
 				ret = s_symlink(connfd, fullpath, fullpath1);
 				free(fullpath);
 				free(fullpath1);
 				break;
 			case RELEASE:
 				fd = readInt(connfd);
-				printf("Command:\tRELEASE\nFD\t\t%d\n",  fd);
+				// printf("Command:\tRELEASE\nFD\t\t%d\n",  fd);
 				ret = s_release(connfd, fd);
 				break;
 			case WRITE:
@@ -488,7 +488,7 @@ int processData(int connfd){
 				fd = readInt(connfd);
 				size = readInt(connfd);
 				offset = readInt(connfd);
-				printf("Command:\tWRITE\nPath Length:\t%d\nPath:\t\t%s\nSize\t\t%d\nOffset\t\t%d\nfd\t\t%d\n", path_len, fullpath, size, offset, fd);
+				// printf("Command:\tWRITE\nPath Length:\t%d\nPath:\t\t%s\nSize\t\t%d\nOffset\t\t%d\nfd\t\t%d\n", path_len, fullpath, size, offset, fd);
 				ret = s_write(connfd, fullpath, fd, size, offset);
 				free(fullpath);
 				break;
@@ -498,7 +498,7 @@ int processData(int connfd){
 				path[path_len] = '\0';
 				fullpath = malloc(strlen(storage_dir) + strlen(path));
 				sprintf(fullpath, "%s%s", storage_dir, path + 1);
-				printf("Command:\tOPENDIR\nPath Length:\t%d\nPath:\t\t%s\n", path_len, fullpath);
+				// printf("Command:\tOPENDIR\nPath Length:\t%d\nPath:\t\t%s\n", path_len, fullpath);
 				ret = s_opendir(connfd, fullpath);
 				free(fullpath);
 				break;
@@ -510,7 +510,7 @@ int processData(int connfd){
 				sprintf(fullpath, "%s%s", storage_dir, path + 1);
 				// fd = readInt(connfd);
 				size_t myfd = readInt(connfd);
-				printf("Command:\tRELEASEDIR\nPath Length:\t%d\nPath:\t\t%s\nFD\t\t%d\n", path_len, fullpath, (int)myfd);
+				// printf("Command:\tRELEASEDIR\nPath Length:\t%d\nPath:\t\t%s\nFD\t\t%d\n", path_len, fullpath, (int)myfd);
 				ret = s_releasedir(connfd, fullpath, myfd);
 				free(fullpath);
 				break;
@@ -525,7 +525,7 @@ int processData(int connfd){
 				p_to[to_len] = '\0';
 				fullpath1 = malloc(strlen(storage_dir) + strlen(p_to));
 				sprintf(fullpath1, "%s%s", storage_dir, p_to + 1);
-				printf("Command:\tRENAME\tFrom Length:\t%d\nFrom:\t\t%s\nTo Length:\t%d\nTo\t%s\n", from_len, fullpath, to_len, fullpath1);
+				// printf("Command:\tRENAME\tFrom Length:\t%d\nFrom:\t\t%s\nTo Length:\t%d\nTo\t%s\n", from_len, fullpath, to_len, fullpath1);
 				ret = s_rename(connfd, fullpath, fullpath1);
 				free(fullpath);
 				free(fullpath1);
@@ -538,7 +538,7 @@ int processData(int connfd){
 				sprintf(fullpath, "%s%s", storage_dir, path + 1);
 				mode = readInt(connfd);
 				flags = readInt(connfd);
-				printf("Command:\tCREATE\nPath Length:\t%d\nPath:\t\t%s\nmode:\t%d\nflags:\t%d\n", path_len, fullpath, mode, flags);
+				// printf("Command:\tCREATE\nPath Length:\t%d\nPath:\t\t%s\nmode:\t%d\nflags:\t%d\n", path_len, fullpath, mode, flags);
 				ret = s_create(connfd, fullpath, mode, flags);
 				free(fullpath);
 				break;
@@ -550,12 +550,12 @@ int processData(int connfd){
 				sprintf(fullpath, "%s%s", storage_dir, path + 1);
 				fd = readInt(connfd);
 				size = readInt(connfd);
-				printf("Command:\tTRUNCATE\nPath Length:\t%d\nPath:\t\t%s\nfd:\t%d\nsize:\t%d\n", path_len, fullpath, fd, size);
+				// printf("Command:\tTRUNCATE\nPath Length:\t%d\nPath:\t\t%s\nfd:\t%d\nsize:\t%d\n", path_len, fullpath, fd, size);
 				ret = s_truncate(connfd, fullpath, fd, size);
 				free(fullpath);
 				break;
 		}
-		printf("\n");
+		// printf("\n");
 	
 	}
 

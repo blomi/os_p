@@ -130,7 +130,7 @@ int mark_down(int serv_index){
 			n_servers_down ++;
 			if(n_servers_down > 1){
 				log_message(serv_index, "Last server to went down. number of servers down : 2 program can not exec further of this point. exitting.\n");
-				printf("NUMBER OF SERVERS DOWN = %d, last server to went down: %d, exitting\n", n_servers_down, serv_index);
+				// printf("NUMBER OF SERVERS DOWN = %d, last server to went down: %d, exitting\n", n_servers_down, serv_index);
 				exit(-1);
 			}
 		}
@@ -138,7 +138,7 @@ int mark_down(int serv_index){
 	}else if(SERV_ERR == FUNCTION_ERR){
 		return -1;
 	}else{
-		printf("Unknown bug in program, please, find your ruber duck, or whatever u call it, to help you put yourself togather, to figure out what went down wrong in this FUCKIN PROGRAMM!!!\n");
+		// printf("Unknown bug in program, please, find your ruber duck, or whatever u call it, to help you put yourself togather, to figure out what went down wrong in this FUCKIN PROGRAMM!!!\n");
 		return 0;
 	}
 }
@@ -179,7 +179,7 @@ int * getSockfd_arr(){
 		       continue;
 		    }
 		    log_message(serv_index, "Connection established. ready to exchange data.\n");
-		    printf("CONNECTION TO SERVER: %d WAS ESTABLISHED.\n", serv_index);
+		    // printf("CONNECTION TO SERVER: %d WAS ESTABLISHED.\n", serv_index);
 		}
 	}
 	// if(sockfd_1 == -1){
@@ -232,14 +232,14 @@ int get_actual_size(int serv_index, int size){
 			p_server = n_servers - 1;
 		t_size -= bytes;
 	}
-	printf("server : %d, data size: %d, parity bytes count: %d\n", serv_index, size, p_bytes);
+	// printf("server : %d, data size: %d, parity bytes count: %d\n", serv_index, size, p_bytes);
 	return size - p_bytes;
 }
 
 static int client_getattr(const char *path, struct stat *stbuf)
 {
 	pthread_mutex_lock(&lock);
-	printf("CLIENT_GETATTR %s\n", path);
+	// printf("CLIENT_GETATTR %s\n", path);
 	int serv_index, sockfd, total = 0, sent = 0, err, path_len; 
 	char sendBuffer[1024];
     int * sockfd_arr;
@@ -305,7 +305,7 @@ static int client_getattr(const char *path, struct stat *stbuf)
 		    if(sent <= 0){
 		    	SERV_ERR = CONNECTION_ERR;
 		    	mark_down(serv_index);
-		    	printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+		    	// printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
 		    	sizes[serv_index] = -1;
 		    	continue;
 	    	}
@@ -329,7 +329,7 @@ static int client_getattr(const char *path, struct stat *stbuf)
 				stbuf->st_mtime = time( NULL );
 				stbuf->st_ctime = time( NULL );
 			}else{
-				printf("could not stat file. returning errno %d\n", err);
+				// printf("could not stat file. returning errno %d\n", err);
 				pthread_mutex_unlock(&lock);
 				return err;
 			}
@@ -354,7 +354,7 @@ static int client_getattr(const char *path, struct stat *stbuf)
 	    }
 	}
 
-	printf("GETATTR SIZE************************* %d\n", (int)(stbuf->st_size));
+	// printf("GETATTR SIZE************************* %d\n", (int)(stbuf->st_size));
     
 	pthread_mutex_unlock(&lock);
 	return err;
@@ -364,7 +364,7 @@ static int client_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			 off_t offset, struct fuse_file_info *fi)
 {
 	pthread_mutex_lock(&lock);
-	printf("CLIENT_READDIR %s\n", path);
+	// printf("CLIENT_READDIR %s\n", path);
 	int ret = MIN_ERR;
 	(void) offset;
 	(void) fi;
@@ -419,7 +419,7 @@ static int client_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 static int client_open(const char *path, struct fuse_file_info *fi)
 {	
 	pthread_mutex_lock(&lock);
-	printf("CLIENT_OPEN %s\n", path);
+	// printf("CLIENT_OPEN %s\n", path);
 	struct c_file *f = malloc(sizeof(struct c_file));
     memset(f, 0, sizeof(struct c_file));
     f->fd_arr = malloc(sizeof(int) * n_servers);
@@ -442,7 +442,7 @@ static int client_open(const char *path, struct fuse_file_info *fi)
     	sockfd = sockfd_arr[serv_index];
     	sent = sendData(sockfd, sendBuffer, total);
 	    if(sent <= 0){
-    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+    		// printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
 	    	continue;
     	}
 		err = readInt(sockfd);
@@ -452,11 +452,11 @@ static int client_open(const char *path, struct fuse_file_info *fi)
 			f->flags = flags;
 			int temp = readInt(sockfd);
 			f->fd_arr[serv_index] = temp;
-			printf("gadmocemuli fd: %d\n", temp);
+			// printf("gadmocemuli fd: %d\n", temp);
 			// f->fd_arr[serv_index] = readInt(sockfd);
-			printf("OPEN_END: RETURNED FILE DESCRIPTOR - %d\n", f->fd_arr[serv_index]);
+			// printf("OPEN_END: RETURNED FILE DESCRIPTOR - %d\n", f->fd_arr[serv_index]);
 		}else{
-			printf("OPEN_END: COULD NOT OPEN FILE. SERVER RESPONDED: %d\n", err);
+			// printf("OPEN_END: COULD NOT OPEN FILE. SERVER RESPONDED: %d\n", err);
 		}
     }
     fi->fh = (long)f;
@@ -492,7 +492,7 @@ int write_block(const char * buffer, int serv_index, int sockfd, int stripe, int
 
     if(sendData(sockfd, sendBuffer, total) <= 0){
 		SERV_ERR = CONNECTION_ERR;
-		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+		// printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
     	return -1;
 	}
 
@@ -503,14 +503,14 @@ int write_block(const char * buffer, int serv_index, int sockfd, int stripe, int
 
 	if(sendData(sockfd, sendBuffer, total) <= 0){
 		SERV_ERR = CONNECTION_ERR;
-		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+		// printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
     	return -1;
 	}
 
     my_errno = readInt(sockfd);
 	if(my_errno != 0){
 		SERV_ERR = FUNCTION_ERR;
-		printf("ALERT! SERVER COULD NOT EXECUTE WRITE SYSCALL ON SERVER, ERRNO:  %d\n", my_errno);
+		// printf("ALERT! SERVER COULD NOT EXECUTE WRITE SYSCALL ON SERVER, ERRNO:  %d\n", my_errno);
     	return -1;	
 	}
 	n_bytes = readInt(sockfd);
@@ -532,26 +532,26 @@ int read_block(char * block, int serv_index, int sockfd, int stripe, int path_le
 
     if(sendData(sockfd, sendBuffer, total) <= 0){
 		SERV_ERR = CONNECTION_ERR;
-		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+		// printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
 		return -1;
 	}
 	my_errno = readInt(sockfd);
 	if(my_errno != 0){
 		SERV_ERR = FUNCTION_ERR;
-		printf("ALERT! SERVER COULD NOT EXECUTE READ, ERRNO: %d\n", my_errno);
+		// printf("ALERT! SERVER COULD NOT EXECUTE READ, ERRNO: %d\n", my_errno);
     	return -1;	
 	}
 	n_bytes = readInt(sockfd);
 	// if(n_bytes == 0){
 	// 	return 0;
 	// }
-	printf("****bytes read %d ******\n", n_bytes);
+	// printf("****bytes read %d ******\n", n_bytes);
 	read(sockfd, block, n_bytes);
 	return n_bytes;
 }
 
 int recover_block(char * block, int serv_index, int stripe, int path_len, const char * path, int fd, int num_bytes, int b_offset){
-	printf("STARTING RECOVERING BLOCK:\n");
+	// printf("STARTING RECOVERING BLOCK:\n");
 	int * sockfd_arr = getSockfd_arr();
 	int n_bytes = -1;
 	char tmp[BLOCK_SIZE]; 
@@ -560,13 +560,13 @@ int recover_block(char * block, int serv_index, int stripe, int path_len, const 
 	for(int i = 0; i < n_servers; i++){
 		if(i != serv_index){
 			memset(tmp, 0, BLOCK_SIZE);
-			printf("stripe: %d, serv_index: %d, b_offset: %d, bytes_to_read: %d\n", (int)stripe, (int)i, (int)b_offset, num_bytes);
+			// printf("stripe: %d, serv_index: %d, b_offset: %d, bytes_to_read: %d\n", (int)stripe, (int)i, (int)b_offset, num_bytes);
     		n_bytes = read_block(tmp, i, sockfd_arr[i], stripe, path_len, path, -1, num_bytes, b_offset);
 			if(n_bytes == -1){
 				mark_down(i);
 				return -1;	
 			}
-			printf("n_bytes %d, content: %s\n", n_bytes, tmp);
+			// printf("n_bytes %d, content: %s\n", n_bytes, tmp);
 			myxor(block, tmp, n_bytes);
 			ret = MAX(ret, n_bytes);
 		}
@@ -578,7 +578,7 @@ static int client_read(const char *path, char *buf, size_t size, off_t offset,
 		      struct fuse_file_info *fi)
 {
 	pthread_mutex_lock(&lock);
-	printf("CLIENT_READ %s\n", path);
+	// printf("CLIENT_READ %s\n", path);
 	struct c_file *f = (struct c_file *)fi->fh;
 	int serv_index, sockfd, fd, total = 0, err, sent = 0, n_bytes = 0, path_len = strlen(path);
 	char sendBuffer[1024];
@@ -605,7 +605,7 @@ static int client_read(const char *path, char *buf, size_t size, off_t offset,
 
 	    	sent = sendData(sockfd, sendBuffer, total);
 		    if(sent <= 0){
-	    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+	    		// printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
 		    	continue;
 	    	}
 		    err = readInt(sockfd);
@@ -613,14 +613,14 @@ static int client_read(const char *path, char *buf, size_t size, off_t offset,
 		    	continue;	
 			}
 			n_bytes = readInt(sockfd);
-			printf("****bytes read %d ******\n", n_bytes);
+			// printf("****bytes read %d ******\n", n_bytes);
 			// char content[n_bytes + 1];
 			// if(n_bytes > 0){
 			read(sockfd, buf, n_bytes);
 		    // content[n_bytes] = '\0';
 		    // strcpy(buf, content);
 			// }
-			printf("READ_END: BYTES READ: %d\n", n_bytes);
+			// printf("READ_END: BYTES READ: %d\n", n_bytes);
 		    // memcpy(buf, content, n_bytes);
 		    break;
 	    }
@@ -649,7 +649,7 @@ static int client_read(const char *path, char *buf, size_t size, off_t offset,
 			else
 				fd = -1;
 
-			printf("r_size: %d, size: %d, stripe: %d, serv_index: %d, b_offset: %d, w_offset: %d, bytes_to_read: %d\n", (int)r_size, (int)size, (int)stripe, (int)serv_index, (int)b_offset, (int)w_offset, bytes_to_read);
+			// printf("r_size: %d, size: %d, stripe: %d, serv_index: %d, b_offset: %d, w_offset: %d, bytes_to_read: %d\n", (int)r_size, (int)size, (int)stripe, (int)serv_index, (int)b_offset, (int)w_offset, bytes_to_read);
     		
     		n_bytes = read_block(block, serv_index, sockfd, stripe, path_len, path, fd, bytes_to_read, b_offset);
     		if(n_bytes == -1){
@@ -665,13 +665,13 @@ static int client_read(const char *path, char *buf, size_t size, off_t offset,
 			}
     		
     		if(n_bytes == 0){
-    			printf("aq modis vafshe?\n");
+    			// printf("aq modis vafshe?\n");
     			err = 0;
     			break;
     		}else{
     			memcpy(buf + w_offset, block, n_bytes);
 				w_offset += n_bytes;
-			    printf("READ_END: BYTES READ: %d\n", n_bytes);
+			    // printf("READ_END: BYTES READ: %d\n", n_bytes);
 
 			    offset += n_bytes;
 			    r_size -= n_bytes;
@@ -694,13 +694,13 @@ static int client_read(const char *path, char *buf, size_t size, off_t offset,
 //As for read above, except that it can't return 0.
 static int client_write(const char* path, const char *buff, size_t size, off_t offset, struct fuse_file_info* fi){
 	pthread_mutex_lock(&lock);
-	printf("CLIENT_WRITE %s\n", path);
+	// printf("CLIENT_WRITE %s\n", path);
 	
 	struct c_file *f = (struct c_file *)fi->fh;
 	int serv_index, sockfd, fd, path_len = strlen(path), buf_len = strlen(buff), sent = 0, err, send_size, total = 0, b_written, total_written = 0, s_size, buf_offset;
     int * sockfd_arr = getSockfd_arr();
 
-    printf("n_servers: %d\n", n_servers);
+    // printf("n_servers: %d\n", n_servers);
 
     if(f_s == RAID_1){
 
@@ -716,11 +716,11 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
 			else
 				fd = -1;
 
-			printf("WRITE: FILE DESCRIPTOR - %d\n", fd);
+			// printf("WRITE: FILE DESCRIPTOR - %d\n", fd);
 		    
 			
 			char sendBuffer[4096];
-			printf("Size of buffer: %d, Total number of bytes to send: %d\n", (int)buf_len, (int)size);
+			// printf("Size of buffer: %d, Total number of bytes to send: %d\n", (int)buf_len, (int)size);
 			total += putInt(sendBuffer, WRITE, total);
 		    total += putInt(sendBuffer, path_len, total);
 		    strcpy(sendBuffer + total, path);
@@ -737,7 +737,7 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
 				mark_down(serv_index);
 		    	continue;
 	    	}
-	    	printf("holla\n");
+	    	// printf("holla\n");
 
 			// int dd = 0;
 			while(s_size > 0){
@@ -746,16 +746,16 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
 			    send_size = s_size;
 				if(send_size > CHUNK_SIZE)
 					send_size = CHUNK_SIZE;
-				printf("Trying to send %d bytes over socket. bytes sent so far: %d \n", send_size, buf_offset);
+				// printf("Trying to send %d bytes over socket. bytes sent so far: %d \n", send_size, buf_offset);
 				total += putInt(sendBuffer, send_size, total);
 			    memcpy(sendBuffer + total, buff + buf_offset, send_size);
 			    total += send_size;
 
 				sent = sendData(sockfd, sendBuffer, total);
 				err = readInt(sockfd);
-			    printf("ERR1: %d\n", err);
+			    // printf("ERR1: %d\n", err);
 				if(err != 0){
-					printf("aq xoar shemodis?\n");
+					// printf("aq xoar shemodis?\n");
 					break;
 		   			// pthread_mutex_unlock(&lock);
 					// return err;	
@@ -763,7 +763,7 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
 				
 				
 				b_written = readInt(sockfd);
-				printf("B_WRITTEN: %d\n", b_written);
+				// printf("B_WRITTEN: %d\n", b_written);
 		    	total_written += b_written;
 		    	if(b_written < send_size){
 					break;    		
@@ -776,7 +776,7 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
 		    }
 		    if(err != 0){
 		    	pthread_mutex_unlock(&lock);
-		    	printf("writing to sockfd %d FAILED. \n", sockfd);
+		    	// printf("writing to sockfd %d FAILED. \n", sockfd);
 		    	return err;
 		    }
 
@@ -795,7 +795,7 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
     		int n_bytes = -1;
     		int bytes_to_write = MIN(BLOCK_SIZE - b_offset, w_size);
     		
-			printf("w_size: %d, size: %d, stripe: %d, serv_index: %d, b_offset: %d, r_offset: %d, bytes_to_write: %d\n", (int)w_size, (int)size, (int)stripe, (int)serv_index, (int)b_offset, (int)r_offset, bytes_to_write);
+			// printf("w_size: %d, size: %d, stripe: %d, serv_index: %d, b_offset: %d, r_offset: %d, bytes_to_write: %d\n", (int)w_size, (int)size, (int)stripe, (int)serv_index, (int)b_offset, (int)r_offset, bytes_to_write);
     		
 
 		    sockfd = sockfd_arr[serv_index];
@@ -806,7 +806,7 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
 				fd = -1;
 
 			int old_read = read_block(old_block, serv_index, sockfd, stripe, path_len, path, -1, bytes_to_write, b_offset);
-			printf("old_read: %d\n", old_read);
+			// printf("old_read: %d\n", old_read);
 			if(old_read == -1){
 				if(mark_down(serv_index) < 0){
 					pthread_mutex_unlock(&lock);
@@ -825,7 +825,7 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
 			}
 
 			if(n_bytes == 0){
-    			printf("aq modis vafshe?\n");
+    			// printf("aq modis vafshe?\n");
     			break;
     		}else{
 				char block_p[BLOCK_SIZE];
@@ -843,9 +843,9 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
 				}else{
 					myxor(block_p, old_block, old_read);
 					myxor(block_p, buff + r_offset, n_bytes);
-					printf("PARITY ABOUT TO BE WRITTEN: %s, n_bytes: %d, stripe: %d, b_offset: %d\n", block_p, n_bytes, stripe, b_offset);
+					// printf("PARITY ABOUT TO BE WRITTEN: %s, n_bytes: %d, stripe: %d, b_offset: %d\n", block_p, n_bytes, stripe, b_offset);
 					int parity_write = write_block(block_p, serv_index_p, sockfd_p, stripe, path_len, path, -1, n_bytes, b_offset, b_offset);
-					printf("**NUMBER OF BYTES WRITTEN ON PARITY: %d\n", parity_write);
+					// printf("**NUMBER OF BYTES WRITTEN ON PARITY: %d\n", parity_write);
 				}
 			}
 
@@ -857,7 +857,7 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
 
 	}
     
-	printf("WRITE_END\n\n");
+	// printf("WRITE_END\n\n");
     pthread_mutex_unlock(&lock);
 	return total_written;
 }
@@ -873,7 +873,7 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
 //The IBM document claims that there is exactly one release per open, but I don't know if that is true.
 static int client_release(const char* path, struct fuse_file_info *fi){
 	pthread_mutex_lock(&lock);
-	printf("CLIENT_RELEASE %s\n", path);
+	// printf("CLIENT_RELEASE %s\n", path);
 	struct c_file *f = (struct c_file *)fi->fh;
 	int serv_index, sockfd, err = -1, total = 0, sent = 0;
 	char sendBuffer[1024];
@@ -898,11 +898,11 @@ static int client_release(const char* path, struct fuse_file_info *fi){
     
         sent = sendData(sockfd, sendBuffer, total);
 	    if(sent <= 0){
-    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+    		// printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
 	    	continue;
     	}
 		err = readInt(sockfd);
-		printf("release returned value: %d\n", err);
+		// printf("release returned value: %d\n", err);
 	}
     pthread_mutex_unlock(&lock);
     return err;
@@ -913,7 +913,7 @@ static int client_release(const char* path, struct fuse_file_info *fi){
 //See rename(2) for full details.
 static int client_rename(const char* from, const char* to){
 	pthread_mutex_lock(&lock);
-	printf("CLIENT_RENAME %s  %s\n", from, to);
+	// printf("CLIENT_RENAME %s  %s\n", from, to);
 	int serv_index, sockfd, total = 0, from_len = strlen(from), to_len = strlen(to), err = -1, sent;
     int * sockfd_arr = getSockfd_arr();
 	
@@ -930,7 +930,7 @@ static int client_rename(const char* from, const char* to){
     	sockfd = sockfd_arr[serv_index];
 		sent = sendData(sockfd, sendBuffer, total);
 	    if(sent <= 0){
-    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+    		// printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
 	    	continue;
     	}
 		err = readInt(sockfd);
@@ -944,7 +944,7 @@ static int client_rename(const char* from, const char* to){
 //See unlink(2) for details.
 static int client_unlink(const char* path){
 	pthread_mutex_lock(&lock);
-	printf("CLIENT_UNLINK %s\n", path);
+	// printf("CLIENT_UNLINK %s\n", path);
 	int serv_index, sockfd, total = 0, path_len = strlen(path), err = -1, sent;
     int * sockfd_arr = getSockfd_arr();
 	
@@ -958,7 +958,7 @@ static int client_unlink(const char* path){
     	sockfd = sockfd_arr[serv_index];
 		sent = sendData(sockfd, sendBuffer, total);
 	    if(sent <= 0){
-    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+    		// printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
 	    	continue;
     	}
 		err = readInt(sockfd);
@@ -970,7 +970,7 @@ static int client_unlink(const char* path){
 //Remove the given directory. This should succeed only if the directory is empty (except for "." and ".."). See rmdir(2) for details.
 static int client_rmdir(const char* path){
 	pthread_mutex_lock(&lock);
-	printf("CLIENT_RMDIR %s\n", path);
+	// printf("CLIENT_RMDIR %s\n", path);
 	int serv_index, sockfd, total = 0, path_len = strlen(path), err = -1, sent;
     int * sockfd_arr = getSockfd_arr();
 	
@@ -984,7 +984,7 @@ static int client_rmdir(const char* path){
     	sockfd = sockfd_arr[serv_index];
 		sent = sendData(sockfd, sendBuffer, total);
 	    if(sent <= 0){
-    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+    		// printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
 	    	continue;
     	}
 		err = readInt(sockfd);
@@ -996,7 +996,7 @@ static int client_rmdir(const char* path){
 //Create a directory with the given name. The directory permissions are encoded in mode. 
 static int client_mkdir(const char* path, mode_t mode){
 	pthread_mutex_lock(&lock);
-	printf("CLIENT_MKDIR %s\n", path);
+	// printf("CLIENT_MKDIR %s\n", path);
 	int serv_index, sockfd, total = 0, path_len = strlen(path), err = -1, sent;
     int * sockfd_arr = getSockfd_arr();
 	
@@ -1011,7 +1011,7 @@ static int client_mkdir(const char* path, mode_t mode){
     	sockfd = sockfd_arr[serv_index];
 	    sent = sendData(sockfd, sendBuffer, total);
 	    if(sent <= 0){
-    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+    		// printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
 	    	continue;
     	}
 		err = readInt(sockfd);
@@ -1022,7 +1022,7 @@ static int client_mkdir(const char* path, mode_t mode){
 
 static int client_symlink(const char* from, const char * to){
 	pthread_mutex_lock(&lock);
-	printf("CLIENT_SYMLINK %s %s\n", from, to);
+	// printf("CLIENT_SYMLINK %s %s\n", from, to);
 	int serv_index, sockfd, total = 0, path_len = strlen(from), path_len1 = strlen(to), err = -1, sent;
     int * sockfd_arr = getSockfd_arr();
 	
@@ -1039,7 +1039,7 @@ static int client_symlink(const char* from, const char * to){
     	sockfd = sockfd_arr[serv_index];
 	    sent = sendData(sockfd, sendBuffer, total);
 	    if(sent <= 0){
-    		printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
+    		// printf("ALERT! COULD NOT CONNECT TO SERVER %d\n", serv_index);
 	    	continue;
     	}
 		err = readInt(sockfd);
@@ -1051,7 +1051,7 @@ static int client_symlink(const char* from, const char * to){
 /*  Open a directory for reading. */
 static int client_opendir(const char* path, struct fuse_file_info* fi){
 	pthread_mutex_lock(&lock);
-	printf("CLIENT_OPENDIR %s\n", path);
+	// printf("CLIENT_OPENDIR %s\n", path);
 	int ret = MIN_ERR;
 	struct c_file *f = malloc(sizeof(struct c_file));
     memset(f, 0, sizeof(struct c_file));
@@ -1097,7 +1097,7 @@ static int client_opendir(const char* path, struct fuse_file_info* fi){
 //This is like release, except for directories.
 static int client_releasedir(const char* path, struct fuse_file_info *fi){
 	pthread_mutex_lock(&lock);
-	printf("CLIENT_RELEASEDIR %s\n", path);
+	// printf("CLIENT_RELEASEDIR %s\n", path);
 	int ret = MIN_ERR;
 	struct c_file *f = (struct c_file *)fi->fh;
 	if(f == NULL) return 0;
@@ -1138,7 +1138,7 @@ static int client_utimens(const char*path, const struct timespec ts[2]){
 
 static int client_create(const char *path, mode_t mode, struct fuse_file_info *fi) {
 	pthread_mutex_lock(&lock);
-	printf("CLIENT_CREATE %s\n", path);
+	// printf("CLIENT_CREATE %s\n", path);
 	int serv_index, sockfd, total, path_len = strlen(path), err = -1, sent;
     int * sockfd_arr = getSockfd_arr();
 	
@@ -1163,7 +1163,7 @@ static int client_create(const char *path, mode_t mode, struct fuse_file_info *f
 
 	    err = readInt(sockfd);
 	    if(err != 0){
-	    	printf("ALERT! COULD NOT CREATE FILE %s ON SERVER %d\n", path, serv_index);
+	    	// printf("ALERT! COULD NOT CREATE FILE %s ON SERVER %d\n", path, serv_index);
 	    	continue;
 	    }
 		err = readInt(sockfd);
@@ -1174,12 +1174,39 @@ static int client_create(const char *path, mode_t mode, struct fuse_file_info *f
 
 static int client_truncate(const char *path, off_t size){
 	pthread_mutex_lock(&lock);
-	printf("CLIENT_TRUNCATE %s\n", path);
+	// printf("CLIENT_TRUNCATE %s\n", path);
 	// struct c_file *f = NULL;// = (struct c_file *)fi->fh;
 	int serv_index, sockfd, total = 0, path_len = strlen(path), err = -1, sent;
 	int * sockfd_arr = getSockfd_arr();
 	char sendBuffer[1024];
     
+	int sizes[n_servers];
+	for(int i = 0; i < n_servers; i++){
+		sizes[i] = 0;
+	}
+	int p_server_index = n_servers - 1;
+	int t_size = size;
+	int block_index = 0;
+	serv_index = block_index % n_servers;
+	int stripe = block_index / (n_servers - 1);
+	int newl = 1;
+	int bytes = 0;
+	while(t_size > 0){
+		bytes = MIN(BLOCK_SIZE, t_size);
+		t_size -= bytes;
+		sizes[serv_index] += bytes;
+		if(newl == 1){
+			sizes[p_server_index] += bytes;
+			newl = 0;
+		}
+		block_index ++;
+		serv_index = block_index % n_servers;
+		if((block_index % (n_servers - 1)) == 0){
+			newl = 1;
+			p_server_index = (p_server_index + n_servers - 1) % n_servers;
+			stripe ++;
+		}
+	}
 
 	for(serv_index = 0; serv_index < n_servers; serv_index ++){
 		total = 0;
@@ -1189,8 +1216,11 @@ static int client_truncate(const char *path, off_t size){
 	    strcpy(sendBuffer + total, path);
 	    total += path_len;
 	    total += putInt(sendBuffer, -1, total);
-	    total += putInt(sendBuffer, (int)size, total);
-	    
+	    if(f_s == RAID_1)
+	    	total += putInt(sendBuffer, (int)size, total);
+	    else
+	    	total += putInt(sendBuffer, (int)sizes[serv_index], total); 
+
 	    sent = sendData(sockfd, sendBuffer, total);
 	    if(sent <= 0){
 	    	SERV_ERR = CONNECTION_ERR;
@@ -1200,13 +1230,13 @@ static int client_truncate(const char *path, off_t size){
 
 	    err = readInt(sockfd);
 	    if(err != 0){
-	    	// pthread_mutex_unlock(&lock);
-	    	// return err;
-	    	continue;
+	    	pthread_mutex_unlock(&lock);
+	    	return err;
 	    }
 	    
 	    err = readInt(sockfd);
 	}
+	
     pthread_mutex_unlock(&lock);
 	return err;	
 }
@@ -1309,7 +1339,7 @@ int parsecf(char * path){
 	int maximumLineLength = 256;
 	char *lineBuffer = (char *)malloc(sizeof(char) * maximumLineLength);
 	if (lineBuffer == NULL) {
-    	printf("Error allocating memory for line buffer.");
+    	// printf("Error allocating memory for line buffer.");
     	exit(1);
 	}	
 	
@@ -1320,7 +1350,7 @@ int parsecf(char * path){
 
 	log_f = fopen(log_path, "a+");
 	if (log_f == NULL){
-		printf("couldn't create log file.\n");
+		// printf("couldn't create log file.\n");
 		return -1;
 	}
 
@@ -1358,7 +1388,7 @@ int parsecf(char * path){
 		}
 	}
 
-	printcf();
+	// printcf();
 
 	close(fd);
 	return 0;
@@ -1373,21 +1403,21 @@ int launch_mount(int mount_i, int argc, char *argv[]){
 	n_servers_down = 0;
 	if (pthread_mutex_init(&lock, NULL) != 0)
     {
-        printf("\n mutex init failed\n");
+        // printf("\n mutex init failed\n");
         return 1;
     }
     if(mounts[mountIndex]->raid_id == 1){
-    	printf("RAID 55555");
+    	// printf("RAID 55555");
     	f_s = RAID_1;
     }else if(mounts[mountIndex]->raid_id == 5){
-    	printf("RAID 111111");
+    	// printf("RAID 111111");
     	f_s = RAID_5;
     }else{
-    	printf("unknown raid id\n");
+    	// printf("unknown raid id\n");
     	return 1;
     }
     argv[1] = mounts[mountIndex]->mountpoint;
-	printf("argv1 : %s\n", argv[1]);
+	// printf("argv1 : %s\n", argv[1]);
 	char * argvn[argc];
 	for (int i=0; i<argc; ++i){
 		argvn[i] = argv[i];
@@ -1402,13 +1432,13 @@ int main(int argc, char *argv[])
 {
 
 	if(argc == 1){
-		printf("CONFIG: no config file specified. exitting");
+		// printf("CONFIG: no config file specified. exitting");
 		return 0;
 	}
 	char * path = malloc(strlen(argv[1]) + 1);
 	strcpy(path, argv[1]);
 	if(parsecf(path) != 0){
-		printf("CONFIG: bad formatting of config file. exitting");
+		// printf("CONFIG: bad formatting of config file. exitting");
 		return 0;
 	}
 
@@ -1423,7 +1453,7 @@ int main(int argc, char *argv[])
 	pids = malloc(nMounts * sizeof(int));
 	for(int i = 0; i < nMounts; i++){
 		
-		if(i != 1) continue;
+		// if(i != 0) continue;
 		if ((pids[i] = fork()) < 0){
 			exit(100);
 		} else if (pids[i] == 0){

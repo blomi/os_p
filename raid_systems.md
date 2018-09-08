@@ -115,3 +115,10 @@ Synchronization
 
 Rationale
 =========
+
+
+
+programis gamshvebi gashveba
+=============
+./net_raid_client /path/to/config/file -f -o nonempty
+./net_raid_server ip port /path/to/storage/dir/
