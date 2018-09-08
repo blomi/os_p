@@ -57,7 +57,7 @@ int timeout;
 int nMounts;
 
 int CHUNK_SIZE = 512;
-int BLOCK_SIZE = 7;
+int BLOCK_SIZE = 256;
 
 int sockfd_1;
 int sockfd_2;
@@ -687,12 +687,15 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
 	int serv_index, sockfd, fd, path_len = strlen(path), buf_len = strlen(buff), sent = 0, err, send_size, total = 0, b_written, total_written = 0, s_size, buf_offset;
     int * sockfd_arr = getSockfd_arr();
 
-    
+    printf("n_servers: %d\n", n_servers);
+
     if(f_s == RAID_1){
+
 	    for(serv_index = 0; serv_index < n_servers; serv_index ++){
 	    	sockfd = sockfd_arr[serv_index];
 	    	buf_offset = 0;
 	    	s_size = size;
+	    	total_written = 0;
 	    	total = 0;
 	    
 		    if(f != NULL)
@@ -721,8 +724,11 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
 				mark_down(serv_index);
 		    	continue;
 	    	}
-			
+	    	printf("holla\n");
+
+			// int dd = 0;
 			while(s_size > 0){
+				// dd++;
 				total = 0;
 			    send_size = s_size;
 				if(send_size > CHUNK_SIZE)
@@ -733,12 +739,7 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
 			    total += send_size;
 
 				sent = sendData(sockfd, sendBuffer, total);
-				printf("SENT: %d\n", sent);
-				if(sent <= 0){
-		    		break;
-		    	}
-
-			    err = readInt(sockfd);
+				err = readInt(sockfd);
 			    printf("ERR1: %d\n", err);
 				if(err != 0){
 					printf("aq xoar shemodis?\n");
@@ -756,9 +757,14 @@ static int client_write(const char* path, const char *buff, size_t size, off_t o
 		    	}
 				s_size -= send_size;
 		    	buf_offset += send_size;
+		    	// printf("***************dd: %d", dd);	
+		    	// if(dd == 50) break;
+		    	// return 0;
 		    }
 		    if(err != 0){
+		    	pthread_mutex_unlock(&lock);
 		    	printf("writing to sockfd %d FAILED. \n", sockfd);
+		    	return err;
 		    }
 
 	    }
@@ -1394,7 +1400,7 @@ int main(int argc, char *argv[])
 	// }
 	pids = malloc(nMounts * sizeof(int));
 	for(int i = 0; i < nMounts; i++){
-		if(i != 0) continue;
+		// if(i != 0) continue;
 		if ((pids[i] = fork()) < 0){
 			exit(100);
 		} else if (pids[i] == 0){

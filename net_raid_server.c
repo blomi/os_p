@@ -81,7 +81,7 @@ int s_opendir(int connfd, char * path){
 	char sendBuffer[1024];
     int total = 0, sent;
 	DIR * dirp = opendir(path);
-	size_t a = -5;
+	// size_t a = -5;
 	if(dirp == NULL){
 		printf("could not open directory: %s\n", path);
 		total += putInt(sendBuffer, -errno, total);
@@ -96,7 +96,7 @@ int s_opendir(int connfd, char * path){
 
 int s_releasedir(int connfd, char* path, size_t fd){
 	char sendBuffer[1024];
-	int total = 0, sent, err;
+	int total = 0, sent; //err;
 	// printf("aq ar modis vafshe? %d\n", fd);
 	// DIR * dp = (DIR*)((size_t)fd);
 	// err = closedir((DIR*)fd);
@@ -255,7 +255,8 @@ int s_release(int connfd, int fd){
 }
 
 int s_read(int connfd, char * path, int fd, int size, int offset){
-	int fsize = lseek(fd, 0, SEEK_END);
+	// int fsize = lseek(fd, 0, SEEK_END);
+	lseek(fd, 0, SEEK_END);
 	char buff[size];     //es zoma sheidzleba ar iyos sakmarisi didi failebistvis da shesacvleli maq. droebit iyos ase
     char sendBuffer[size + 8];
     int total = 0, b_read, sent = 0, coread = 0;//cor = close_on_read
@@ -287,7 +288,7 @@ int s_read(int connfd, char * path, int fd, int size, int offset){
 int s_write(int connfd, char * path, int fd, int size, int offset){
 	char sendBuffer[4096];
 	char buff[4096];
-	int total = 0, sent = 0, err, b_written, total_written = 0, cowrite = 0;//cow = close_on_write
+	int total = 0, sent = 0, b_written, total_written = 0, cowrite = 0;//cow = close_on_write
 	// recv(connfd, &buffer, buf_len, 0);
 	
 	if(fd == -1){
@@ -321,7 +322,9 @@ int s_write(int connfd, char * path, int fd, int size, int offset){
 				total_written += b_written;
 			}
 			sent = sendData(connfd, sendBuffer, total);
-		
+			
+			if(b_written == -1) 
+				break;
 			if(b_written != btr || total_written == size)
 				break;
 		}
@@ -371,9 +374,9 @@ int s_truncate(int connfd, char * path, int fd, int size){
 
 
 int processData(int connfd){
-	int path_len, size, offset, ret, fd, flags, mode, path_len1, buf_len, from_len, to_len;
+	int path_len, size, offset, ret, fd, flags, mode, path_len1, from_len, to_len;
 	char path[128], path1[128], p_from[128], p_to[128];
-	char buffer[1024];
+	// char buffer[1024];
 	char * fullpath;
 	char * fullpath1;
 		
@@ -605,7 +608,7 @@ int main(int argc, char *argv[])
 	    	close(connfd);
 	    	continue;
 	    }
-		int bytes = processData(connfd);
+		processData(connfd);
 		close(connfd);
 
 		// n = recv(connfd, &recvBuff, 1023, 0);
