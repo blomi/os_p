@@ -303,7 +303,7 @@ int s_write(int connfd, char * path, int fd, int size, int offset){
 	if(fd != -1){
 		// printf("Starting to receive %d bytes long data for fd: %d\n", size, fd);
     	while(1){
-    		lseek(fd, 0, SEEK_SET);
+    		// lseek(fd, 0, SEEK_SET);
     		total = 0;
     		// printf("entering while loop...\n");
     		int btr = readInt(connfd);
@@ -601,10 +601,10 @@ int main(int argc, char *argv[])
 
     while(1)
     {
-    	printf("listening:\n");
+    	// printf("listening:\n");
     	connfd = accept(listenfd, (struct sockaddr*)NULL, NULL);
 		if (connfd < 0){
-	    	printf("unable to connect: %d\n", connfd);
+	    	// printf("unable to connect: %d\n", connfd);
 	    	close(connfd);
 	    	continue;
 	    }
